@@ -141,6 +141,63 @@ docker compose up -d
 
 ---
 
+## Updating a deployed instance (without losing data)
+
+Your code lives in the Docker **image**; your database lives in the separate named
+**volume** (`cranialfaultzone_cranial-data` → `/data/cranial.db`). Rebuilding the
+image recreates the container but **re-attaches the same volume**, so entries
+survive. The only thing that wipes data is `docker compose down -v` (the `-v`
+deletes volumes) — never use that to update.
+
+Standard data-safe update, run in the project folder on the host:
+
+```bash
+git pull origin main          # get the latest code
+docker compose up -d --build  # rebuild image + recreate container, keep the volume
+```
+
+`--build` is required because the Python and static files are baked into the image
+at build time; it's fast (dependency layers are cached). New tables/seed rows added
+by an update (e.g. the `settings` table) are created automatically on startup, so
+data migrates forward untouched.
+
+**Optional — snapshot the volume before updating** (lets you roll back):
+
+```bash
+docker run --rm \
+  -v cranialfaultzone_cranial-data:/data \
+  -v "$PWD":/backup \
+  alpine tar czf /backup/cranial-data-$(date +%F).tar.gz -C /data .
+```
+
+### Avoiding rebuilds (dev/staging only)
+
+To make `git pull` take effect with no rebuild, bind-mount the source and enable
+auto-reload in `docker-compose.yml`:
+
+```yaml
+    volumes:
+      - cranial-data:/data
+      - ./app:/app/app          # live-mount the code over the image's copy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Then a `git pull` is picked up live (uvicorn restarts on Python changes; static
+files are served fresh on next load). Trade-off: the running app now depends on the
+checked-out files on that host, so keep `--build` for a real production box and
+reserve the bind-mount for dev/staging.
+
+### Quick reference
+
+| Goal | Command |
+|------|---------|
+| Update + keep data (normal) | `git pull && docker compose up -d --build` |
+| Back up the DB volume | the `alpine tar` one-liner above |
+| Restart without rebuild (no code change) | `docker compose restart` |
+| ⚠️ Wipes the database — avoid | `docker compose down -v` |
+
+---
+
 ## Notes
 
 - **Port**: maps `8000:8000` — change in `docker-compose.yml` if it's taken.
