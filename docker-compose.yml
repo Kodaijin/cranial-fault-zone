@@ -1,0 +1,19 @@
+services:
+  app:
+    build: .
+    container_name: cranial-fault-zone
+    ports:
+      - "8000:8000"
+    volumes:
+      - cranial-data:/data
+    environment:
+      - DATABASE_PATH=/data/cranial.db
+      # No API keys are required. Weather and environmental data are fetched from
+      # Open-Meteo (https://open-meteo.com), which is free and keyless.
+      # OWM_API_KEY and AMBEE_API_KEY passthroughs kept below as harmless no-ops.
+      - OWM_API_KEY=${OWM_API_KEY:-}
+      - AMBEE_API_KEY=${AMBEE_API_KEY:-}
+    restart: unless-stopped
+
+volumes:
+  cranial-data:

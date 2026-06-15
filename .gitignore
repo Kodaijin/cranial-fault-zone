@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Environment / secrets (never commit real keys)
+.env
+*.local
+
+# SQLite database (lives in a Docker volume; ignore any local copy)
+cranial.db
+*.sqlite
+*.sqlite3
+
+# Migration / backup artifacts
+*.tar
+*.tar.gz
+
+# Claude Code local (machine-specific) settings
+.claude/settings.local.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

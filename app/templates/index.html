@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="theme-color" content="#07070e" />
+  <title>Cranial Fault Zone</title>
+
+  <!-- Google Fonts: Syne (display) + DM Sans (body) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/static/styles.css?v=6" />
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            base:    '#07070e',
+            deep:    '#0c0c17',
+            panel:   '#111120',
+            panel2:  '#181828',
+            panel3:  '#1e1e32',
+            edge:    '#2c2c4a',
+            edge2:   '#3a3a58',
+            fault:   '#e8334a',
+            fault2:  '#ff5566',
+            amber:   '#e8a020',
+            amber2:  '#ffbc3a',
+            quake:   '#ff7043',
+            stable:  '#30d88a',
+            stable2: '#56f0a8',
+            ink:     '#eeeef8',
+            muted:   '#7070a0',
+            muted2:  '#9090b8',
+          },
+          fontFamily: {
+            display: ['Syne', 'system-ui', 'sans-serif'],
+            body: ['DM Sans', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+</head>
+<body class="bg-base text-ink font-body min-h-screen antialiased">
+
+  <!-- Tectonic background layer -->
+  <div class="tectonic-bg" aria-hidden="true"></div>
+
+  <!-- Main content -->
+  <div id="app" class="relative z-10 max-w-2xl mx-auto px-4 pt-20 pb-12"></div>
+
+  <!-- Top nav -->
+  <nav class="nav-shell fixed top-0 inset-x-0 z-40" role="navigation" aria-label="Main navigation">
+    <div class="nav-inner max-w-2xl mx-auto px-4">
+
+      <!-- Brand (left) -->
+      <a href="#/dashboard" class="nav-brand" aria-label="Cranial Fault Zone home">
+        <div class="nav-brand-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12 Q6 6 9 12 Q12 18 15 12 Q18 6 21 12"/>
+            <line x1="3" y1="17" x2="21" y2="17" stroke-opacity="0.35"/>
+          </svg>
+        </div>
+        <span class="nav-brand-text">Cranial Fault Zone</span>
+      </a>
+
+      <!-- Nav links (right) -->
+      <div class="nav-links">
+        <a href="#/dashboard" data-nav="dashboard" class="nav-btn" aria-label="Dashboard">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
+            <rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>
+          </svg>
+          <span class="nav-label">Dashboard</span>
+        </a>
+        <a href="#/log" data-nav="log" class="nav-btn" aria-label="Log entry">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
+          </svg>
+          <span class="nav-label">Log</span>
+        </a>
+        <a href="#/reports" data-nav="reports" class="nav-btn" aria-label="Reports">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          <span class="nav-label">Reports</span>
+        </a>
+        <a href="#/manage" data-nav="manage" class="nav-btn" aria-label="Manage">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07M8.46 8.46a5 5 0 0 0 0 7.07"/>
+          </svg>
+          <span class="nav-label">Manage</span>
+        </a>
+      </div>
+
+    </div>
+  </nav>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed top-20 inset-x-0 mx-auto w-fit max-w-[88%] z-50 hidden" role="status" aria-live="polite"></div>
+
+  <script src="/static/app.js?v=6"></script>
+</body>
+</html>
