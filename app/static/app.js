@@ -228,14 +228,14 @@ async function renderDashboard() {
   // ── Activity Heatmap ───────────────────────────────────
   const cells = grid.days.map((d) => {
     let cls, tooltip;
-    if (d.count > 0) {
+    if (d.state === 'pain') {
       cls = `l${d.level}`;
       tooltip = `${d.date}: ${d.count} entr${d.count === 1 ? 'y' : 'ies'}`;
-    } else if (d.tracked) {
-      cls = 'l0'; // good day (green) — only from the first entry forward
-      tooltip = `${d.date}: good day (no pain logged)`;
+    } else if (d.state === 'good') {
+      cls = 'l0';
+      tooltip = `${d.date}: good day (no pain)`;
     } else {
-      cls = 'lu'; // untracked: before the first entry / no data yet
+      cls = 'lu';
       tooltip = `${d.date}: no tracking`;
     }
     return `<div class="grid-cell ${cls}" title="${tooltip}"></div>`;
@@ -434,6 +434,29 @@ window.addEventListener('hashchange', () => {
 
 // ── Entry row helper ─────────────────────────────────────
 function entryRow(e) {
+  if (e.is_good_day) {
+    return `
+    <div class="entry-row">
+      <div style="flex:1;min-width:0">
+        <div>
+          <span class="entry-type good-day-label" style="color:var(--stable)">&#9679; Good day</span>
+          <span class="entry-ts">${fmtDate(e.timestamp)}</span>
+        </div>
+        ${e.notes ? `<div class="entry-meta">${esc(e.notes)}</div>` : ''}
+      </div>
+      <a href="#/log/${e.id}" class="del-btn" aria-label="Edit entry" title="Edit">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7.5 2.5 L7.5 1 L8 0.5 L9.5 2 L9 2.5 Z" stroke="none" fill="currentColor"/>
+          <line x1="1" y1="9" x2="1" y2="9"/>
+        </svg>
+      </a>
+      <button class="del-btn" data-del-entry="${e.id}" aria-label="Delete entry" title="Delete">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <line x1="1.5" y1="1.5" x2="8.5" y2="8.5"/><line x1="8.5" y1="1.5" x2="1.5" y2="8.5"/>
+        </svg>
+      </button>
+    </div>`;
+  }
   const zones = (e.pain_zones || []).map((z) => z.zone_name).join(', ') || '—';
   const meds = (e.medications || []).map(m => m.name).join(', ');
   const press = e.weather_data && e.weather_data.pressure_hpa;
@@ -470,17 +493,24 @@ function entryRow(e) {
 async function renderLog() {
   const editId = location.hash.replace(/^#\//, '').split('/')[1] || null;
 
-  const [types, meds, locs, zones] = await Promise.all([
+  const [types, meds, locs, zones, settings] = await Promise.all([
     api.get('/api/headache_types'),
     api.get('/api/medications'),
     api.get('/api/locations'),
     api.get('/api/pain_zones'),
+    api.get('/api/settings'),
   ]);
+
+  const goodDayTypeId = settings.good_day_type_id;
+  const painTypes = types.filter((t) => t.id !== goodDayTypeId);
 
   let entry = null;
   if (editId) {
     entry = await api.get('/api/entries/' + editId);
   }
+
+  // Determine initial mode
+  let mode = (editId && entry && entry.is_good_day) ? 'good' : 'pain';
 
   const nowLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
     .toISOString().slice(0, 16);
@@ -502,133 +532,191 @@ async function renderLog() {
   }
 
   const tsValue = editId && entry ? formatToLocalDatetimeInput(entry.timestamp) : nowLocal;
-  const typeValue = editId && entry ? entry.headache_type.id : '';
+  const typeValue = editId && entry && !entry.is_good_day ? entry.headache_type.id : '';
   const durValue = editId && entry && entry.duration_minutes ? entry.duration_minutes : '';
   const locValue = editId && entry && entry.location ? entry.location.id : '';
   const notesValue = editId && entry ? (entry.notes || '') : '';
-  const medIds = editId && entry ? new Set(entry.medications.map(m => m.id)) : new Set();
-  const zoneIds = editId && entry ? new Set(entry.pain_zones.map(z => z.id)) : new Set();
+  const medIds = editId && entry && !entry.is_good_day ? new Set(entry.medications.map(m => m.id)) : new Set();
+  const zoneIds = editId && entry && !entry.is_good_day ? new Set(entry.pain_zones.map(z => z.id)) : new Set();
 
-  const formCard = el(`
-    <div class="cfz-card">
-      <form id="entry-form">
+  function buildFormHTML(currentMode) {
+    const isPain = currentMode === 'pain';
+    const submitLabel = editId
+      ? (isPain ? 'Update Entry' : 'Update Good Day')
+      : (isPain ? 'Save Entry' : 'Save Good Day');
+    return `
+      <div class="cfz-card">
+        <form id="entry-form">
 
-        <div class="form-group">
-          <label class="cfz-label" for="f-ts">Date &amp; Time</label>
-          <input id="f-ts" name="timestamp" type="datetime-local" value="${tsValue}"
-            class="cfz-input" />
-        </div>
-
-        <div class="form-group">
-          <label class="cfz-label" for="f-type">Headache Type</label>
-          <select id="f-type" name="headache_type_id" required class="cfz-input">
-            ${types.map((t) => `<option value="${t.id}"${typeValue == t.id ? ' selected' : ''}>${esc(t.name)}</option>`).join('')}
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label class="cfz-label" for="f-dur">Duration (min)</label>
-          <input id="f-dur" name="duration_minutes" type="number" min="0" placeholder="e.g. 120"
-            value="${durValue}"
-            class="cfz-input" />
-        </div>
-
-        <div class="form-group">
-          <label class="cfz-label">Medication(s)</label>
-          <div class="zone-chip-wrap" id="med-chips">
-            ${meds.map((m) => `
-              <label class="zone-chip${medIds.has(m.id) ? ' selected' : ''}">
-                <input type="checkbox" value="${m.id}"${medIds.has(m.id) ? ' checked' : ''} />
-                <span class="zone-chip-dot"></span>
-                ${esc(m.name)}
-              </label>`).join('')}
+          <!-- Mode toggle -->
+          <div class="form-group">
+            <div class="seg-toggle" id="mode-toggle" role="group" aria-label="Entry mode">
+              <button type="button" class="seg-btn${isPain ? ' seg-active' : ''}" data-mode="pain">Pain entry</button>
+              <button type="button" class="seg-btn${!isPain ? ' seg-active' : ''}" data-mode="good">Good day</button>
+            </div>
           </div>
-          ${meds.length === 0 ? '<p style="font-size:0.75rem;color:var(--muted)">No medications configured in Manage.</p>' : '<p style="font-size:0.75rem;color:var(--muted)">Optional.</p>'}
-        </div>
 
-        <div class="form-group">
-          <label class="cfz-label" for="f-loc">Location</label>
-          <select id="f-loc" name="location_id" class="cfz-input">
-            <option value="">None (no weather lookup)</option>
-            ${locs.map((l) => `<option value="${l.id}"${locValue == l.id ? ' selected' : ''}>${esc(l.city_name)}, ${esc(l.state_code)}</option>`).join('')}
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label class="cfz-label">Pain Zones</label>
-          <div class="zone-chip-wrap" id="zone-chips">
-            ${zones.map((z) => `
-              <label class="zone-chip${zoneIds.has(z.id) ? ' selected' : ''}">
-                <input type="checkbox" value="${z.id}"${zoneIds.has(z.id) ? ' checked' : ''} />
-                <span class="zone-chip-dot"></span>
-                ${esc(z.zone_name)}
-              </label>`).join('')}
+          <!-- Date & Time (always shown) -->
+          <div class="form-group">
+            <label class="cfz-label" for="f-ts">Date &amp; Time</label>
+            <input id="f-ts" name="timestamp" type="datetime-local" value="${tsValue}"
+              class="cfz-input" />
           </div>
-          ${zones.length === 0 ? '<p style="font-size:0.75rem;color:var(--muted)">No pain zones configured in Manage.</p>' : ''}
-        </div>
 
-        <div class="form-group">
-          <label class="cfz-label" for="f-notes">Notes</label>
-          <textarea id="f-notes" name="notes" rows="3"
-            placeholder="Triggers, aura, context…"
-            class="cfz-input">${esc(notesValue)}</textarea>
-        </div>
+          <!-- Pain-only fields -->
+          <div id="pain-fields" style="${isPain ? '' : 'display:none'}">
+            <div class="form-group">
+              <label class="cfz-label" for="f-type">Headache Type</label>
+              <select id="f-type" name="headache_type_id"${isPain ? ' required' : ''} class="cfz-input">
+                ${painTypes.map((t) => `<option value="${t.id}"${typeValue == t.id ? ' selected' : ''}>${esc(t.name)}</option>`).join('')}
+              </select>
+            </div>
 
-        <button type="submit" class="cfz-btn-primary" id="submit-btn">
-          ${editId ? 'Update Entry' : 'Save Entry'}
-        </button>
-      </form>
-    </div>`);
+            <div class="form-group">
+              <label class="cfz-label" for="f-dur">Duration (min)</label>
+              <input id="f-dur" name="duration_minutes" type="number" min="0" placeholder="e.g. 120"
+                value="${durValue}"
+                class="cfz-input" />
+            </div>
 
-  app.appendChild(formCard);
+            <div class="form-group">
+              <label class="cfz-label">Medication(s)</label>
+              <div class="zone-chip-wrap" id="med-chips">
+                ${meds.map((m) => `
+                  <label class="zone-chip${medIds.has(m.id) ? ' selected' : ''}">
+                    <input type="checkbox" value="${m.id}"${medIds.has(m.id) ? ' checked' : ''} />
+                    <span class="zone-chip-dot"></span>
+                    ${esc(m.name)}
+                  </label>`).join('')}
+              </div>
+              ${meds.length === 0 ? '<p style="font-size:0.75rem;color:var(--muted)">No medications configured in Manage.</p>' : '<p style="font-size:0.75rem;color:var(--muted)">Optional.</p>'}
+            </div>
+          </div>
 
-  // Zone & medication chip toggle
-  app.querySelectorAll('.zone-chip input, #med-chips input').forEach((cb) =>
-    cb.addEventListener('change', () =>
-      cb.closest('.zone-chip').classList.toggle('selected', cb.checked)));
+          <!-- Location (always shown) -->
+          <div class="form-group">
+            <label class="cfz-label" for="f-loc">Location</label>
+            <select id="f-loc" name="location_id" class="cfz-input">
+              <option value="">None (no weather lookup)</option>
+              ${locs.map((l) => `<option value="${l.id}"${locValue == l.id ? ' selected' : ''}>${esc(l.city_name)}, ${esc(l.state_code)}</option>`).join('')}
+            </select>
+          </div>
 
-  // Form submit
-  app.querySelector('#entry-form').addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const f = ev.target;
-    const pain_zone_ids = [...f.querySelectorAll('.zone-chip input:checked')]
-      .map((c) => Number(c.value));
-    const medication_ids = [...f.querySelectorAll('#med-chips input:checked')]
-      .map((c) => Number(c.value));
-    const payload = {
-      timestamp:        f.timestamp.value ? new Date(f.timestamp.value).toISOString() : null,
-      headache_type_id: Number(f.headache_type_id.value),
-      duration_minutes: f.duration_minutes.value ? Number(f.duration_minutes.value) : null,
-      medication_ids,
-      location_id:      f.location_id.value ? Number(f.location_id.value) : null,
-      pain_zone_ids,
-      notes:            f.notes.value.trim() || null,
-    };
-    const btn = document.getElementById('submit-btn');
-    btn.disabled = true;
-    const isEditing = editId !== null;
-    const originalText = isEditing ? 'Update Entry' : 'Save Entry';
-    const savingText = isEditing ? 'Updating…' : 'Saving & fetching conditions…';
-    btn.textContent = savingText;
-    try {
-      let saved;
-      if (isEditing) {
-        saved = await api.put('/api/entries/' + editId, payload);
-        toast('Entry updated');
-      } else {
-        saved = await api.post('/api/entries', payload);
-        const w = saved.weather_data || {};
-        const detail = (w.pressure_hpa && w.pressure_hpa !== 'N/A')
-          ? ` · ${w.pressure_hpa} hPa, ${w.conditions}` : '';
-        toast('Entry saved' + detail);
+          <!-- Pain zones (pain mode only) -->
+          <div id="zones-field" style="${isPain ? '' : 'display:none'}">
+            <div class="form-group">
+              <label class="cfz-label">Pain Zones</label>
+              <div class="zone-chip-wrap" id="zone-chips">
+                ${zones.map((z) => `
+                  <label class="zone-chip${zoneIds.has(z.id) ? ' selected' : ''}">
+                    <input type="checkbox" value="${z.id}"${zoneIds.has(z.id) ? ' checked' : ''} />
+                    <span class="zone-chip-dot"></span>
+                    ${esc(z.zone_name)}
+                  </label>`).join('')}
+              </div>
+              ${zones.length === 0 ? '<p style="font-size:0.75rem;color:var(--muted)">No pain zones configured in Manage.</p>' : ''}
+            </div>
+          </div>
+
+          <!-- Notes (always shown) -->
+          <div class="form-group">
+            <label class="cfz-label" for="f-notes">Notes</label>
+            <textarea id="f-notes" name="notes" rows="3"
+              placeholder="Triggers, aura, context…"
+              class="cfz-input">${esc(notesValue)}</textarea>
+          </div>
+
+          <button type="submit" class="cfz-btn-primary" id="submit-btn">
+            ${submitLabel}
+          </button>
+        </form>
+      </div>`;
+  }
+
+  function mountForm(currentMode) {
+    // Remove existing card if present
+    const existing = app.querySelector('.cfz-card');
+    if (existing) existing.remove();
+
+    const formCard = el(buildFormHTML(currentMode));
+    app.appendChild(formCard);
+
+    // Mode toggle buttons
+    app.querySelectorAll('#mode-toggle .seg-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        mode = btn.dataset.mode;
+        mountForm(mode);
+      });
+    });
+
+    // Zone & medication chip toggle
+    app.querySelectorAll('.zone-chip input, #med-chips input').forEach((cb) =>
+      cb.addEventListener('change', () =>
+        cb.closest('.zone-chip').classList.toggle('selected', cb.checked)));
+
+    // Form submit
+    app.querySelector('#entry-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const f = ev.target;
+      const btn = document.getElementById('submit-btn');
+      btn.disabled = true;
+      const isEditing = editId !== null;
+
+      try {
+        let saved;
+        if (mode === 'good') {
+          const payload = {
+            is_good_day:  true,
+            timestamp:    f.timestamp.value ? new Date(f.timestamp.value).toISOString() : null,
+            location_id:  f.location_id.value ? Number(f.location_id.value) : null,
+            notes:        f.notes.value.trim() || null,
+          };
+          btn.textContent = isEditing ? 'Updating…' : 'Saving…';
+          if (isEditing) {
+            saved = await api.put('/api/entries/' + editId, payload);
+            toast('Good day updated');
+          } else {
+            saved = await api.post('/api/entries', payload);
+            toast('Good day logged');
+          }
+        } else {
+          const pain_zone_ids = [...f.querySelectorAll('#zone-chips input:checked')]
+            .map((c) => Number(c.value));
+          const medication_ids = [...f.querySelectorAll('#med-chips input:checked')]
+            .map((c) => Number(c.value));
+          const payload = {
+            timestamp:        f.timestamp.value ? new Date(f.timestamp.value).toISOString() : null,
+            headache_type_id: Number(f.headache_type_id.value),
+            duration_minutes: f.duration_minutes.value ? Number(f.duration_minutes.value) : null,
+            medication_ids,
+            location_id:      f.location_id.value ? Number(f.location_id.value) : null,
+            pain_zone_ids,
+            notes:            f.notes.value.trim() || null,
+          };
+          btn.textContent = isEditing ? 'Updating…' : 'Saving & fetching conditions…';
+          if (isEditing) {
+            saved = await api.put('/api/entries/' + editId, payload);
+            toast('Entry updated');
+          } else {
+            saved = await api.post('/api/entries', payload);
+            const w = saved.weather_data || {};
+            const detail = (w.pressure_hpa && w.pressure_hpa !== 'N/A')
+              ? ` · ${w.pressure_hpa} hPa, ${w.conditions}` : '';
+            toast('Entry saved' + detail);
+          }
+        }
+        location.hash = '#/dashboard';
+      } catch (e) {
+        toast('Save failed: ' + e.message, 'err');
+        btn.disabled = false;
+        btn.textContent = isEditing
+          ? (mode === 'good' ? 'Update Good Day' : 'Update Entry')
+          : (mode === 'good' ? 'Save Good Day' : 'Save Entry');
       }
-      location.hash = '#/dashboard';
-    } catch (e) {
-      toast('Save failed: ' + e.message, 'err');
-      btn.disabled = false;
-      btn.textContent = originalText;
-    }
-  });
+    });
+  }
+
+  mountForm(mode);
 }
 
 // ═════════════════════════════════════════════════════════
@@ -1079,23 +1167,58 @@ async function renderReports() {
 //  MANAGE
 // ═════════════════════════════════════════════════════════
 async function renderManage() {
-  const [types, meds, locs] = await Promise.all([
+  const [types, meds, locs, settings] = await Promise.all([
     api.get('/api/headache_types'),
     api.get('/api/medications'),
     api.get('/api/locations'),
+    api.get('/api/settings'),
   ]);
+
+  const goodDayTypeId = settings.good_day_type_id;
+  const visibleTypes = types.filter((t) => t.id !== goodDayTypeId);
 
   app.innerHTML = pageHeader(
     '<span class="fault-accent">Manage</span> Data',
     'Customize your reference lists.'
   );
 
+  // ── Settings card (first) ──────────────────────────────
+  const gdMode = settings.good_day_mode || 'auto';
+  app.appendChild(el(`
+    <div class="cfz-card" style="margin-bottom:1rem">
+      ${cardTitle('Settings')}
+      <div class="form-group" style="margin-bottom:0.25rem">
+        <label class="cfz-label" style="margin-bottom:0.5rem">Good day mode</label>
+        <div class="seg-toggle" id="gdmode-toggle" role="group" aria-label="Good day mode">
+          <button type="button" class="seg-btn${gdMode === 'auto' ? ' seg-active' : ''}" data-gdmode="auto">Auto</button>
+          <button type="button" class="seg-btn${gdMode === 'manual' ? ' seg-active' : ''}" data-gdmode="manual">Manual</button>
+        </div>
+        <p style="font-size:0.72rem;color:var(--muted);margin-top:0.5rem;line-height:1.5">
+          <strong style="color:var(--muted2)">Auto</strong> — days with no entries (from your first entry on) count as good days automatically.<br>
+          <strong style="color:var(--muted2)">Manual</strong> — only days you explicitly log as a Good Day count as good.
+        </p>
+      </div>
+    </div>`));
+
+  app.querySelector('#gdmode-toggle').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.seg-btn');
+    if (!btn) return;
+    const newMode = btn.dataset.gdmode;
+    try {
+      await api.put('/api/settings', { good_day_mode: newMode });
+      toast('Good days: ' + (newMode === 'auto' ? 'Auto' : 'Manual'));
+      renderManage();
+    } catch (e) {
+      toast('Failed: ' + e.message, 'err');
+    }
+  });
+
   // ── Headache Types ─────────────────────────────────────
   app.appendChild(el(`
     <div class="cfz-card" style="margin-bottom:1rem">
       ${cardTitle('Headache Types')}
       <div id="types-list">
-        ${manageRows(types, (t) => t.name, null, 'type')}
+        ${manageRows(visibleTypes, (t) => t.name, null, 'type')}
       </div>
       <form data-add="type" class="add-row" style="margin-top:0.75rem">
         <input name="name" placeholder="New type name" required class="cfz-input" style="flex:1" />

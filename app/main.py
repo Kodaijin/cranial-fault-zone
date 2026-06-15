@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import crud, entries, export, gamification, health, stats
+from app.api import crud, entries, export, gamification, health, settings, stats
 from app.db import SessionLocal, init_db
 from app.seed import seed_defaults
 
@@ -37,6 +37,7 @@ app.include_router(health.router)
 app.include_router(crud.router)
 app.include_router(entries.router)
 app.include_router(stats.router)
+app.include_router(settings.router)
 app.include_router(gamification.router)
 app.include_router(export.router)
 

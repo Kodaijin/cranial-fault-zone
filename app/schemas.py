@@ -58,12 +58,13 @@ class PainZoneOut(BaseModel):
 # --- Entries ---
 class EntryCreate(BaseModel):
     timestamp: Optional[datetime] = None
-    headache_type_id: int
+    headache_type_id: Optional[int] = None
     duration_minutes: Optional[int] = Field(default=None, ge=0)
     medication_ids: list[int] = Field(default_factory=list)
     location_id: Optional[int] = None
     pain_zone_ids: list[int] = Field(default_factory=list)
     notes: Optional[str] = None
+    is_good_day: bool = False
 
 
 class EntryOut(BaseModel):
@@ -79,3 +80,4 @@ class EntryOut(BaseModel):
     environmental_data: Optional[Any] = None
     notes: Optional[str] = None
     created_at: datetime
+    is_good_day: bool = False

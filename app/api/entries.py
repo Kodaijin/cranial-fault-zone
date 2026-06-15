@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.db import get_db
 from app.models.models import Entry, HeadacheType, Location, Medication, PainZone
 from app.schemas import EntryCreate, EntryOut
+from app.seed import GOOD_DAY_TYPE_NAME
 from app.services.environment import fetch_environment
 from app.services.geocode import geocode
 from app.services.weather import fetch_weather
@@ -29,6 +30,10 @@ def _parse_json(value: str | None):
 
 def serialize_entry(entry: Entry) -> dict:
     """Build an EntryOut-shaped dict, parsing the stored JSON text fields."""
+    is_good_day = (
+        entry.headache_type is not None
+        and entry.headache_type.name == GOOD_DAY_TYPE_NAME
+    )
     return {
         "id": entry.id,
         "timestamp": entry.timestamp,
@@ -41,6 +46,7 @@ def serialize_entry(entry: Entry) -> dict:
         "environmental_data": _parse_json(entry.environmental_data),
         "notes": entry.notes,
         "created_at": entry.created_at,
+        "is_good_day": is_good_day,
     }
 
 
@@ -55,6 +61,14 @@ def _load_entry(db: Session, entry_id: int) -> Entry | None:
             selectinload(Entry.pain_zones),
         )
     )
+
+
+def _get_good_day_type(db: Session) -> HeadacheType:
+    """Return the Good Day HeadacheType or raise 500 if missing."""
+    ht = db.scalar(select(HeadacheType).where(HeadacheType.name == GOOD_DAY_TYPE_NAME))
+    if ht is None:
+        raise HTTPException(500, "Good Day type not found in database")
+    return ht
 
 
 @router.get("/entries", response_model=list[EntryOut])
@@ -82,7 +96,53 @@ def get_entry(entry_id: int, db: Session = Depends(get_db)):
 
 @router.post("/entries", response_model=EntryOut, status_code=201)
 async def create_entry(payload: EntryCreate, db: Session = Depends(get_db)):
-    # Validate foreign keys.
+    if payload.is_good_day:
+        # Good day: override headache type to the special good-day type,
+        # clear pain zones and medications.
+        htype = _get_good_day_type(db)
+        meds = []
+        zones = []
+
+        # Still honor location for weather/env fetch.
+        location = None
+        if payload.location_id is not None:
+            location = db.get(Location, payload.location_id)
+            if location is None:
+                raise HTTPException(400, "Invalid location_id")
+
+        weather = {"temp_c": "N/A", "pressure_hpa": "N/A", "humidity_pct": "N/A",
+                   "conditions": "N/A", "source": "N/A"}
+        environment = {"pm2_5": "N/A", "pm10": "N/A", "ozone": "N/A",
+                       "tree_pollen": "N/A", "grass_pollen": "N/A",
+                       "weed_pollen": "N/A", "source": "N/A"}
+        if location is not None:
+            coords = await geocode(location.city_name, location.state_code)
+            lat, lon = coords if coords else (None, None)
+            weather = await fetch_weather(lat, lon)
+            environment = await fetch_environment(lat, lon, location.city_name, location.state_code)
+
+        entry = Entry(
+            headache_type_id=htype.id,
+            duration_minutes=payload.duration_minutes,
+            location_id=payload.location_id,
+            notes=payload.notes,
+            weather_data=json.dumps(weather),
+            environmental_data=json.dumps(environment),
+            medications=[],
+            pain_zones=[],
+        )
+        if payload.timestamp is not None:
+            entry.timestamp = payload.timestamp
+
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+        return serialize_entry(_load_entry(db, entry.id))
+
+    # Normal (pain) entry path.
+    if payload.headache_type_id is None:
+        raise HTTPException(400, "headache_type_id is required")
+
     htype = db.get(HeadacheType, payload.headache_type_id)
     if htype is None:
         raise HTTPException(400, "Invalid headache_type_id")
@@ -151,7 +211,25 @@ async def update_entry(entry_id: int, payload: EntryCreate, db: Session = Depend
     if entry is None:
         raise HTTPException(404, "Entry not found")
 
-    # Validate foreign keys (same patterns as create_entry).
+    if payload.is_good_day:
+        # Good day update: set the good-day type, clear zones/meds.
+        htype = _get_good_day_type(db)
+        entry.headache_type_id = htype.id
+        entry.duration_minutes = payload.duration_minutes
+        entry.location_id = payload.location_id
+        entry.notes = payload.notes
+        entry.medications = []
+        entry.pain_zones = []
+        if payload.timestamp is not None:
+            entry.timestamp = payload.timestamp
+        # Preserve weather_data and environmental_data (do NOT refetch).
+        db.commit()
+        return serialize_entry(_load_entry(db, entry_id))
+
+    # Normal (pain) entry update.
+    if payload.headache_type_id is None:
+        raise HTTPException(400, "headache_type_id is required")
+
     htype = db.get(HeadacheType, payload.headache_type_id)
     if htype is None:
         raise HTTPException(400, "Invalid headache_type_id")

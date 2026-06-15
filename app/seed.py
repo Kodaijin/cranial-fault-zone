@@ -2,7 +2,9 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.models import HeadacheType, Location, PainZone
+from app.models.models import HeadacheType, Location, PainZone, Setting
+
+GOOD_DAY_TYPE_NAME = "Good Day (No Pain)"
 
 DEFAULT_HEADACHE_TYPES = [
     "Migraine",
@@ -41,5 +43,19 @@ def seed_defaults(db: Session) -> None:
 
     if db.scalar(select(PainZone).limit(1)) is None:
         db.add_all(PainZone(zone_name=name) for name in DEFAULT_PAIN_ZONES)
+
+    # Always ensure the good-day type exists (even if other types already seeded).
+    existing_good_day = db.scalar(
+        select(HeadacheType).where(HeadacheType.name == GOOD_DAY_TYPE_NAME)
+    )
+    if existing_good_day is None:
+        db.add(HeadacheType(name=GOOD_DAY_TYPE_NAME))
+
+    # Ensure a default setting row exists for good_day_mode.
+    existing_setting = db.scalar(
+        select(Setting).where(Setting.key == "good_day_mode")
+    )
+    if existing_setting is None:
+        db.add(Setting(key="good_day_mode", value="auto"))
 
     db.commit()

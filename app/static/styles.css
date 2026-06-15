@@ -1116,4 +1116,42 @@ textarea.cfz-input { resize: vertical; min-height: 80px; }
   align-items: center;
   gap: 0.3rem;
 }
+
+/* ── Segmented toggle (good day mode, log form) ─────── */
+.seg-toggle {
+  display: inline-flex;
+  background: var(--panel2);
+  border: 1px solid var(--edge);
+  border-radius: 100px;
+  padding: 3px;
+  gap: 2px;
+}
+.seg-btn {
+  flex: 1;
+  padding: 0.4rem 1.1rem;
+  border-radius: 100px;
+  border: none;
+  background: transparent;
+  color: var(--muted2);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+  min-height: 36px;
+}
+.seg-btn:hover:not(.seg-active) {
+  color: var(--ink);
+  background: rgba(255,255,255,0.05);
+}
+.seg-btn.seg-active {
+  background: rgba(232, 51, 74, 0.22);
+  color: var(--fault2);
+  font-weight: 600;
+}
+
+/* Good day label in entry rows */
+.good-day-label {
+  font-weight: 600;
+}
 .stat-pill strong { color: var(--ink); font-weight: 600; }

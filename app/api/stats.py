@@ -10,7 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db import get_db
-from app.models.models import Entry
+from app.models.models import Entry, Setting
+from app.seed import GOOD_DAY_TYPE_NAME
 from app.tz import app_today, to_app_date
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
@@ -18,40 +19,85 @@ router = APIRouter(prefix="/api/stats", tags=["stats"])
 
 @router.get("/grid")
 def activity_grid(db: Session = Depends(get_db)) -> dict:
-    """365-day heatmap. intensity = number of entries that day (0 = pain-free)."""
+    """365-day heatmap with state: 'untracked' | 'good' | 'pain'."""
     today = app_today()
     start = today - timedelta(days=364)
 
-    entries = db.scalars(select(Entry)).all()
-    counts: dict[str, int] = defaultdict(int)
-    entry_dates = [to_app_date(e.timestamp) for e in entries if e.timestamp]
-    for d in entry_dates:
-        if start <= d <= today:
-            counts[d.isoformat()] += 1
+    # Read the mode setting.
+    mode_row = db.scalar(select(Setting).where(Setting.key == "good_day_mode"))
+    mode = mode_row.value if mode_row is not None else "auto"
 
-    # "Good" (green) days only count from the first entry forward; days before
-    # tracking began (or when there are no entries at all) are untracked.
-    first_entry_date = min(entry_dates) if entry_dates else None
+    # Load all entries with headache_type.
+    entries = db.scalars(
+        select(Entry).options(selectinload(Entry.headache_type))
+    ).all()
 
-    max_count = max(counts.values(), default=0)
+    # Split entries into pain vs good-day.
+    pain_dates: list[date] = []
+    good_dates: list[date] = []
+    all_dates: list[date] = []
+    pain_counts: dict[str, int] = defaultdict(int)
+    good_day_set: set[str] = set()
+
+    for e in entries:
+        if not e.timestamp:
+            continue
+        d = to_app_date(e.timestamp)
+        all_dates.append(d)
+        is_good = (
+            e.headache_type is not None
+            and e.headache_type.name == GOOD_DAY_TYPE_NAME
+        )
+        if is_good:
+            good_dates.append(d)
+            good_day_set.add(d.isoformat())
+        else:
+            pain_dates.append(d)
+            if start <= d <= today:
+                pain_counts[d.isoformat()] += 1
+
+    first_entry_date = min(all_dates) if all_dates else None
+    max_pain_count = max(pain_counts.values(), default=0)
+
     days = []
     for i in range(365):
         d = start + timedelta(days=i)
         key = d.isoformat()
-        count = counts.get(key, 0)
+        pain_count = pain_counts.get(key, 0)
+        has_good = key in good_day_set
         tracked = first_entry_date is not None and d >= first_entry_date
-        # 0-4 intensity buckets (GitHub-style); 0 = no pain that day.
-        if count == 0:
-            level = 0
-        elif max_count <= 1:
-            level = 4
-        else:
-            level = min(4, 1 + int(3 * (count - 1) / max(1, max_count - 1)))
-        days.append({"date": key, "count": count, "level": level,
-                     "tracked": tracked})
 
-    return {"start": start.isoformat(), "end": today.isoformat(), "days": days,
-            "max_count": max_count}
+        # Determine state.
+        if pain_count > 0:
+            state = "pain"
+            # 0-4 intensity buckets (GitHub-style).
+            if max_pain_count <= 1:
+                level = 4
+            else:
+                level = min(4, 1 + int(3 * (pain_count - 1) / max(1, max_pain_count - 1)))
+        elif has_good:
+            state = "good"
+            level = 0
+        elif mode == "auto" and tracked:
+            state = "good"
+            level = 0
+        else:
+            state = "untracked"
+            level = 0
+
+        days.append({
+            "date": key,
+            "count": pain_count,
+            "level": level,
+            "state": state,
+        })
+
+    return {
+        "start": start.isoformat(),
+        "end": today.isoformat(),
+        "days": days,
+        "max_count": max_pain_count,
+    }
 
 
 @router.get("/trends")
@@ -62,15 +108,20 @@ def trends(
 ) -> dict:
     """Barometric pressure vs. onset and allergen/mold counts vs. onset."""
     entries = db.scalars(
-        select(Entry).order_by(Entry.timestamp.asc())
+        select(Entry)
+        .order_by(Entry.timestamp.asc())
+        .options(selectinload(Entry.headache_type))
     ).all()
 
-    # Parse and filter by date range
+    # Parse and filter by date range; exclude good-day entries.
     start_date = _parse_date(start)
     end_date = _parse_date(end)
 
     filtered_entries = []
     for e in entries:
+        # Skip good-day entries — they are not pain onsets.
+        if e.headache_type is not None and e.headache_type.name == GOOD_DAY_TYPE_NAME:
+            continue
         if e.timestamp:
             entry_date = to_app_date(e.timestamp)
             if start_date and entry_date < start_date:

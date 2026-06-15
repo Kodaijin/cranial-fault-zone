@@ -28,6 +28,7 @@ from reportlab.platypus import (
 )
 
 from app.models.models import Entry
+from app.seed import GOOD_DAY_TYPE_NAME
 
 
 def _styles():
@@ -94,6 +95,13 @@ def build_pdf(entries: list[Entry], start: date | None = None, end: date | None 
     s = _styles()
     flow = []
 
+    # Split pain entries from good-day entries.
+    pain_entries = [
+        e for e in entries
+        if not (e.headache_type and e.headache_type.name == GOOD_DAY_TYPE_NAME)
+    ]
+    good_day_count = len(entries) - len(pain_entries)
+
     flow.append(Paragraph("Cranial Fault Zone — Headache Report", s["CFZTitle"]))
     flow.append(
         Paragraph(
@@ -122,15 +130,17 @@ def build_pdf(entries: list[Entry], start: date | None = None, end: date | None 
 
     # --- Section 1: Summary ---
     flow.append(Paragraph("1. Summary", s["CFZHeading"]))
-    flow.append(Paragraph(f"Total attacks logged: <b>{len(entries)}</b>", s["CFZBody"]))
-    if entries:
-        ordered = sorted(entries, key=lambda e: e.timestamp)
+    flow.append(Paragraph(f"Total attacks logged: <b>{len(pain_entries)}</b>", s["CFZBody"]))
+    if good_day_count > 0:
+        flow.append(Paragraph(f"Good (no-pain) days logged: <b>{good_day_count}</b>", s["CFZBody"]))
+    if pain_entries:
+        ordered = sorted(pain_entries, key=lambda e: e.timestamp)
         span = (
             f"{ordered[0].timestamp.strftime('%Y-%m-%d')} to "
             f"{ordered[-1].timestamp.strftime('%Y-%m-%d')}"
         )
         flow.append(Paragraph(f"Date range: {span}", s["CFZBody"]))
-        type_counts = Counter(e.headache_type.name for e in entries)
+        type_counts = Counter(e.headache_type.name for e in pain_entries)
         rows = [["Headache Type", "Count"]] + [
             [name, str(n)] for name, n in type_counts.most_common()
         ]
@@ -140,7 +150,7 @@ def build_pdf(entries: list[Entry], start: date | None = None, end: date | None 
     # --- Section 2: Most frequent pain locations ---
     flow.append(Paragraph("2. Most Frequent Pain Locations", s["CFZHeading"]))
     zone_counts: Counter = Counter()
-    for e in entries:
+    for e in pain_entries:
         for z in e.pain_zones:
             zone_counts[z.zone_name] += 1
     if zone_counts:
@@ -156,7 +166,7 @@ def build_pdf(entries: list[Entry], start: date | None = None, end: date | None 
     # EACH medication used. Entries with no medications bucket as "None / Untreated".
     flow.append(Paragraph("3. Medication Efficacy Summary", s["CFZHeading"]))
     med_durations: dict[str, list[int]] = {}
-    for e in entries:
+    for e in pain_entries:
         if e.medications:
             for med in e.medications:
                 if e.duration_minutes is not None:
@@ -188,7 +198,7 @@ def build_pdf(entries: list[Entry], start: date | None = None, end: date | None 
 
     # --- Section 4: Environmental Exposure Summary ---
     flow.append(Paragraph("4. Environmental Exposure Summary", s["CFZHeading"]))
-    if entries:
+    if pain_entries:
         # Build metrics table with averages
         metrics = [
             ("Barometric Pressure (hPa)", "weather", "pressure_hpa"),
@@ -210,7 +220,7 @@ def build_pdf(entries: list[Entry], start: date | None = None, end: date | None 
         rows = [["Metric", "Average", "Samples"]]
         for label, source, key in metrics:
             values = []
-            for e in entries:
+            for e in pain_entries:
                 if source == "weather":
                     data_str = e.weather_data
                 else:
@@ -234,8 +244,8 @@ def build_pdf(entries: list[Entry], start: date | None = None, end: date | None 
 
     # --- Section 5: Chronological appendix of notes ---
     flow.append(Paragraph("5. Chronological Appendix", s["CFZHeading"]))
-    if entries:
-        for e in sorted(entries, key=lambda x: x.timestamp):
+    if pain_entries:
+        for e in sorted(pain_entries, key=lambda x: x.timestamp):
             zones = ", ".join(z.zone_name for z in e.pain_zones) or "—"
             med = ", ".join(m.name for m in e.medications) if e.medications else "—"
             dur = f"{e.duration_minutes} min" if e.duration_minutes is not None else "—"

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models.models import HeadacheType, Location, Medication, PainZone
+from app.seed import GOOD_DAY_TYPE_NAME
 from app.schemas import (
     HeadacheTypeCreate,
     HeadacheTypeOut,
@@ -43,6 +44,8 @@ def delete_headache_type(item_id: int, db: Session = Depends(get_db)):
     obj = db.get(HeadacheType, item_id)
     if obj is None:
         raise HTTPException(404, "Headache type not found")
+    if obj.name == GOOD_DAY_TYPE_NAME:
+        raise HTTPException(400, "Cannot delete the built-in Good Day type")
     db.delete(obj)
     db.commit()
 
