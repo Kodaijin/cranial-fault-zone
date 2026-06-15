@@ -245,8 +245,16 @@ input, select, textarea, button {
   display: flex;
   align-items: center;
   gap: 2px;
-  flex-shrink: 0;
+  flex-wrap: nowrap;
+  /* Shrink and scroll horizontally on narrow screens so no button (e.g. Manage)
+     is cut off — swipe to reach off-screen items. */
+  flex-shrink: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;            /* Firefox */
+  -webkit-overflow-scrolling: touch;
 }
+.nav-links::-webkit-scrollbar { display: none; }  /* Chrome / Safari */
 
 /* Individual nav button */
 .nav-btn {
@@ -262,6 +270,7 @@ input, select, textarea, button {
   position: relative;
   cursor: pointer;
   text-decoration: none;
+  flex-shrink: 0;   /* keep full size; the row scrolls instead of squishing */
 }
 
 .nav-btn:hover {
@@ -314,10 +323,8 @@ input, select, textarea, button {
   transform: translateX(-50%) scaleX(1);
 }
 
-/* Mobile: hide text labels on very narrow screens */
+/* Mobile: keep labels (the link row scrolls); reclaim space from the brand text. */
 @media (max-width: 400px) {
-  .nav-label { display: none; }
-  .nav-btn { padding: 0.45rem 0.5rem; gap: 0; }
   .nav-brand-text { display: none; }
 }
 

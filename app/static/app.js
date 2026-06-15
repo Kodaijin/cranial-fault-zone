@@ -122,6 +122,10 @@ async function router() {
   document.querySelectorAll('[data-nav]').forEach((a) =>
     a.classList.toggle('active', a.dataset.nav === route));
 
+  // Keep the active tab visible when the nav row scrolls on mobile.
+  const activeNav = document.querySelector('[data-nav].active');
+  if (activeNav) activeNav.scrollIntoView({ inline: 'center', block: 'nearest' });
+
   app.innerHTML = loadingScreen();
   try {
     await fn();
