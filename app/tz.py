@@ -24,3 +24,12 @@ def to_app_date(dt: datetime) -> date:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(APP_TZ).date()
+
+
+def to_app_datetime(dt: datetime) -> datetime:
+    """Localize `dt` to GMT-8 (for local hour/weekday). Naive = UTC."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(APP_TZ)
