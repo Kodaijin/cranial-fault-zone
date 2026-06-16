@@ -17,9 +17,62 @@ from app.tz import app_today, to_app_date
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
 
+def _build_episodes(pain_entries: list[Entry], today: date) -> list[dict]:
+    """Group linked pain entries into episodes (connected components over
+    linked_entry_id) and reduce each to a date span.
+
+    Returns dicts: {"start": date, "end": date, "ongoing": bool}. An ongoing
+    episode's end is extended to today so the heatmap reflects that it is still
+    running.
+    """
+    by_id = {e.id: e for e in pain_entries}
+
+    # Union-find over the undirected "continues" graph.
+    parent: dict[int, int] = {e.id: e.id for e in pain_entries}
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for e in pain_entries:
+        if e.linked_entry_id is not None and e.linked_entry_id in by_id:
+            union(e.id, e.linked_entry_id)
+
+    groups: dict[int, list[Entry]] = defaultdict(list)
+    for e in pain_entries:
+        groups[find(e.id)].append(e)
+
+    episodes: list[dict] = []
+    for members in groups.values():
+        starts = [to_app_date(e.timestamp) for e in members]
+        ends = [
+            to_app_date(e.end_time) if e.end_time else to_app_date(e.timestamp)
+            for e in members
+        ]
+        ongoing = any(bool(e.is_ongoing) for e in members)
+        ep_start = min(starts)
+        ep_end = max(ends)
+        if ongoing:
+            ep_end = max(ep_end, today)
+        episodes.append({"start": ep_start, "end": ep_end, "ongoing": ongoing})
+    return episodes
+
+
 @router.get("/grid")
 def activity_grid(db: Session = Depends(get_db)) -> dict:
-    """365-day heatmap with state: 'untracked' | 'good' | 'pain'."""
+    """365-day heatmap with state: 'untracked' | 'good' | 'pain'.
+
+    Pain entries are grouped into episodes and every day an episode spans is
+    filled (not just the onset day). Ongoing episodes run through to today and
+    flag their trailing day so the UI can mark them as still going.
+    """
     today = app_today()
     start = today - timedelta(days=364)
 
@@ -33,10 +86,8 @@ def activity_grid(db: Session = Depends(get_db)) -> dict:
     ).all()
 
     # Split entries into pain vs good-day.
-    pain_dates: list[date] = []
-    good_dates: list[date] = []
+    pain_entries: list[Entry] = []
     all_dates: list[date] = []
-    pain_counts: dict[str, int] = defaultdict(int)
     good_day_set: set[str] = set()
 
     for e in entries:
@@ -49,14 +100,27 @@ def activity_grid(db: Session = Depends(get_db)) -> dict:
             and e.headache_type.name == GOOD_DAY_TYPE_NAME
         )
         if is_good:
-            good_dates.append(d)
             good_day_set.add(d.isoformat())
         else:
-            pain_dates.append(d)
-            if start <= d <= today:
-                pain_counts[d.isoformat()] += 1
+            pain_entries.append(e)
 
     first_entry_date = min(all_dates) if all_dates else None
+
+    # Build episodes, then fill every covered day in the window.
+    episodes = _build_episodes(pain_entries, today)
+    pain_counts: dict[str, int] = defaultdict(int)  # overlapping episodes per day
+    ongoing_days: set[str] = set()
+
+    for ep in episodes:
+        d = max(ep["start"], start)
+        last = min(ep["end"], today)
+        while d <= last:
+            pain_counts[d.isoformat()] += 1
+            d += timedelta(days=1)
+        # Mark the episode's trailing day (within window) as still going.
+        if ep["ongoing"] and start <= ep["end"] <= today:
+            ongoing_days.add(ep["end"].isoformat())
+
     max_pain_count = max(pain_counts.values(), default=0)
 
     days = []
@@ -66,8 +130,9 @@ def activity_grid(db: Session = Depends(get_db)) -> dict:
         pain_count = pain_counts.get(key, 0)
         has_good = key in good_day_set
         tracked = first_entry_date is not None and d >= first_entry_date
+        ongoing = key in ongoing_days
 
-        # Determine state.
+        # Determine state. A pain span wins over good/untracked.
         if pain_count > 0:
             state = "pain"
             # 0-4 intensity buckets (GitHub-style).
@@ -90,6 +155,20 @@ def activity_grid(db: Session = Depends(get_db)) -> dict:
             "count": pain_count,
             "level": level,
             "state": state,
+            "ongoing": ongoing,
+        })
+
+    # Episode bars, clipped to the visible window.
+    episode_bars = []
+    for ep in sorted(episodes, key=lambda x: x["start"]):
+        bar_start = max(ep["start"], start)
+        bar_end = min(ep["end"], today)
+        if bar_end < start or bar_start > today:
+            continue
+        episode_bars.append({
+            "start": bar_start.isoformat(),
+            "end": bar_end.isoformat(),
+            "ongoing": ep["ongoing"],
         })
 
     return {
@@ -97,6 +176,7 @@ def activity_grid(db: Session = Depends(get_db)) -> dict:
         "end": today.isoformat(),
         "days": days,
         "max_count": max_pain_count,
+        "episodes": episode_bars,
     }
 
 

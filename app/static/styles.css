@@ -537,8 +537,57 @@ input, select, textarea, button {
   margin-top: 0.75rem;
   font-size: 0.7rem;
   color: var(--muted);
+  flex-wrap: wrap;
 }
 .heatmap-legend .grid-cell { flex-shrink: 0; }
+
+/* ── Episode-bar strip (above the heatmap grid) ──────── */
+.heatmap-stack { display: flex; flex-direction: column; gap: 4px; }
+
+.episode-strip {
+  position: relative;
+  height: 9px;
+  width: 100%;
+}
+.episode-bar {
+  position: absolute;
+  top: 1px;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #882336, #c8364a);
+  box-shadow: 0 0 4px rgba(200, 54, 74, 0.4);
+}
+.episode-bar.ongoing {
+  background: linear-gradient(90deg, var(--amber), var(--amber2) 70%, rgba(255, 188, 58, 0.15));
+  box-shadow: 0 0 7px rgba(255, 188, 58, 0.7);
+  animation: ongoing-pulse 1.8s ease-in-out infinite;
+}
+
+/* Ongoing day cell — amber ring + pulse so unresolved episodes stand out. */
+.grid-cell.ongoing {
+  outline: 1.5px solid var(--amber2);
+  outline-offset: -1px;
+  animation: ongoing-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes ongoing-pulse {
+  0%, 100% { box-shadow: 0 0 2px rgba(255, 188, 58, 0.3); }
+  50%      { box-shadow: 0 0 8px rgba(255, 188, 58, 0.85); }
+}
+
+/* "Still going" toggle (pressed state) + ongoing tag in entry rows. */
+.still-going-btn.active {
+  background: var(--amber);
+  border-color: var(--amber2);
+  color: #1a1205;
+}
+.ongoing-tag {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--amber2);
+  margin-left: 0.4rem;
+  letter-spacing: 0.02em;
+}
 
 /* ── Quests ──────────────────────────────────────────── */
 .quest-item {

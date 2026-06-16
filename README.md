@@ -10,8 +10,10 @@ sources.
 
 ## Features
 
-- **Log entries** with date/time, headache type, duration, **multiple medications**,
-  location, **multi-zone pain mapping**, and notes. Past entries are fully **editable**.
+- **Log entries** with start/end time, headache type, **multiple medications**,
+  location, **multi-zone pain mapping**, and notes. Mark a headache **still going**
+  (ends at 11:59 PM, flagged ongoing) and **link entries** into one multi-day episode.
+  Past entries are fully **editable**.
 - **Automatic environmental snapshot** captured at save time for the entry's location:
   - **Weather** (Open-Meteo): temperature, **barometric pressure**, humidity, conditions.
   - **Air quality** (Open-Meteo): PM2.5, PM10, ozone, carbon monoxide, nitrogen
@@ -158,8 +160,10 @@ docker compose up -d --build  # rebuild image + recreate container, keep the vol
 
 `--build` is required because the Python and static files are baked into the image
 at build time; it's fast (dependency layers are cached). New tables/seed rows added
-by an update (e.g. the `settings` table) are created automatically on startup, so
-data migrates forward untouched.
+by an update (e.g. the `settings` table) are created automatically on startup, and a
+lightweight migration adds any new columns to existing tables (e.g. the entry
+`end_time`, `is_ongoing`, and `linked_entry_id` fields), so data migrates forward
+untouched.
 
 **Optional — snapshot the volume before updating** (lets you roll back):
 

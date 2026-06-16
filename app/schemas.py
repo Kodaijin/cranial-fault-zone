@@ -59,7 +59,9 @@ class PainZoneOut(BaseModel):
 class EntryCreate(BaseModel):
     timestamp: Optional[datetime] = None
     headache_type_id: Optional[int] = None
-    duration_minutes: Optional[int] = Field(default=None, ge=0)
+    end_time: Optional[datetime] = None
+    is_ongoing: bool = False
+    linked_entry_id: Optional[int] = None
     medication_ids: list[int] = Field(default_factory=list)
     location_id: Optional[int] = None
     pain_zone_ids: list[int] = Field(default_factory=list)
@@ -72,6 +74,10 @@ class EntryOut(BaseModel):
     id: int
     timestamp: datetime
     headache_type: HeadacheTypeOut
+    end_time: Optional[datetime] = None
+    is_ongoing: bool = False
+    linked_entry_id: Optional[int] = None
+    # Derived: minutes between timestamp and end_time, else the legacy stored value.
     duration_minutes: Optional[int] = None
     medications: list[MedicationOut] = Field(default_factory=list)
     location: Optional[LocationOut] = None

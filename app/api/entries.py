@@ -3,6 +3,7 @@ entry's location with graceful fallback (never blocks the save)."""
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -28,6 +29,15 @@ def _parse_json(value: str | None):
         return value
 
 
+def entry_duration_minutes(entry: Entry) -> int | None:
+    """Derived headache duration: minutes between timestamp and end_time, falling
+    back to the legacy duration_minutes column when no end_time is recorded."""
+    if entry.end_time is not None and entry.timestamp is not None:
+        delta = entry.end_time - entry.timestamp
+        return max(0, round(delta.total_seconds() / 60))
+    return entry.duration_minutes
+
+
 def serialize_entry(entry: Entry) -> dict:
     """Build an EntryOut-shaped dict, parsing the stored JSON text fields."""
     is_good_day = (
@@ -38,7 +48,10 @@ def serialize_entry(entry: Entry) -> dict:
         "id": entry.id,
         "timestamp": entry.timestamp,
         "headache_type": entry.headache_type,
-        "duration_minutes": entry.duration_minutes,
+        "end_time": entry.end_time,
+        "is_ongoing": entry.is_ongoing,
+        "linked_entry_id": entry.linked_entry_id,
+        "duration_minutes": entry_duration_minutes(entry),
         "medications": entry.medications,
         "location": entry.location,
         "pain_zones": entry.pain_zones,
@@ -69,6 +82,41 @@ def _get_good_day_type(db: Session) -> HeadacheType:
     if ht is None:
         raise HTTPException(500, "Good Day type not found in database")
     return ht
+
+
+def _resolve_episode_fields(
+    db: Session, payload: EntryCreate, entry_id: int | None = None
+) -> tuple:
+    """Normalize and validate (end_time, is_ongoing, linked_entry_id) for a pain
+    entry. Returns the values to persist.
+
+    - A real end_time always clears the ongoing flag.
+    - An ongoing entry with no end_time gets 23:59 of its onset day (defensive;
+      the UI sets this too).
+    - linked_entry_id must reference an existing, non-good-day, different entry.
+    """
+    end_time = payload.end_time
+    is_ongoing = payload.is_ongoing
+    if end_time is not None:
+        is_ongoing = False
+    elif is_ongoing:
+        onset = payload.timestamp or datetime.now(timezone.utc)
+        end_time = onset.replace(hour=23, minute=59, second=0, microsecond=0)
+
+    link_id = payload.linked_entry_id
+    if link_id is not None:
+        if entry_id is not None and link_id == entry_id:
+            raise HTTPException(400, "An entry cannot be linked to itself")
+        linked = _load_entry(db, link_id)
+        if linked is None:
+            raise HTTPException(400, "Invalid linked_entry_id")
+        if (
+            linked.headache_type is not None
+            and linked.headache_type.name == GOOD_DAY_TYPE_NAME
+        ):
+            raise HTTPException(400, "Cannot link to a good-day entry")
+
+    return end_time, is_ongoing, link_id
 
 
 @router.get("/entries", response_model=list[EntryOut])
@@ -121,9 +169,9 @@ async def create_entry(payload: EntryCreate, db: Session = Depends(get_db)):
             weather = await fetch_weather(lat, lon)
             environment = await fetch_environment(lat, lon, location.city_name, location.state_code)
 
+        # Good days carry no episode fields (end time / ongoing / link).
         entry = Entry(
             headache_type_id=htype.id,
-            duration_minutes=payload.duration_minutes,
             location_id=payload.location_id,
             notes=payload.notes,
             weather_data=json.dumps(weather),
@@ -185,9 +233,13 @@ async def create_entry(payload: EntryCreate, db: Session = Depends(get_db)):
         weather = await fetch_weather(lat, lon)
         environment = await fetch_environment(lat, lon, location.city_name, location.state_code)
 
+    end_time, is_ongoing, link_id = _resolve_episode_fields(db, payload)
+
     entry = Entry(
         headache_type_id=payload.headache_type_id,
-        duration_minutes=payload.duration_minutes,
+        end_time=end_time,
+        is_ongoing=is_ongoing,
+        linked_entry_id=link_id,
         location_id=payload.location_id,
         notes=payload.notes,
         weather_data=json.dumps(weather),
@@ -215,11 +267,14 @@ async def update_entry(entry_id: int, payload: EntryCreate, db: Session = Depend
         # Good day update: set the good-day type, clear zones/meds.
         htype = _get_good_day_type(db)
         entry.headache_type_id = htype.id
-        entry.duration_minutes = payload.duration_minutes
         entry.location_id = payload.location_id
         entry.notes = payload.notes
         entry.medications = []
         entry.pain_zones = []
+        # Converting to a good day clears any episode fields.
+        entry.end_time = None
+        entry.is_ongoing = False
+        entry.linked_entry_id = None
         if payload.timestamp is not None:
             entry.timestamp = payload.timestamp
         # Preserve weather_data and environmental_data (do NOT refetch).
@@ -260,9 +315,13 @@ async def update_entry(entry_id: int, payload: EntryCreate, db: Session = Depend
         if missing:
             raise HTTPException(400, f"Invalid pain_zone_ids: {sorted(missing)}")
 
+    end_time, is_ongoing, link_id = _resolve_episode_fields(db, payload, entry_id)
+
     # Update entry fields.
     entry.headache_type_id = payload.headache_type_id
-    entry.duration_minutes = payload.duration_minutes
+    entry.end_time = end_time
+    entry.is_ongoing = is_ongoing
+    entry.linked_entry_id = link_id
     entry.location_id = payload.location_id
     entry.notes = payload.notes
     entry.medications = list(meds)

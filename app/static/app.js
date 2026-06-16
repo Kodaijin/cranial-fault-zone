@@ -64,6 +64,17 @@ function fmtDate(iso) {
   });
 }
 
+// Minutes → "45m" / "2h" / "1d 3h" (compact, for entry duration display)
+function fmtDuration(mins) {
+  if (mins == null) return '—';
+  if (mins < 60) return `${mins}m`;
+  const days = Math.floor(mins / 1440);
+  const hours = Math.floor((mins % 1440) / 60);
+  const m = mins % 60;
+  if (days > 0) return `${days}d${hours ? ` ${hours}h` : ''}`;
+  return `${hours}h${m ? ` ${m}m` : ''}`;
+}
+
 // ── Wordmark (global header) ─────────────────────────────
 function wordmark() {
   return `
@@ -234,7 +245,7 @@ async function renderDashboard() {
     let cls, tooltip;
     if (d.state === 'pain') {
       cls = `l${d.level}`;
-      tooltip = `${d.date}: ${d.count} entr${d.count === 1 ? 'y' : 'ies'}`;
+      tooltip = `${d.date}: pain${d.count > 1 ? ` (${d.count} overlapping episodes)` : ''}`;
     } else if (d.state === 'good') {
       cls = 'l0';
       tooltip = `${d.date}: good day (no pain)`;
@@ -242,25 +253,48 @@ async function renderDashboard() {
       cls = 'lu';
       tooltip = `${d.date}: no tracking`;
     }
+    if (d.ongoing) { cls += ' ongoing'; tooltip += ' · still going'; }
     return `<div class="grid-cell ${cls}" title="${tooltip}"></div>`;
+  }).join('');
+
+  // Episode-bar strip — one bar per episode, positioned over its week-columns.
+  // The grid flows column-by-column (7 rows), so each week is one 15px column.
+  const COL_PX = 15;
+  const gridStart = new Date(grid.start + 'T00:00');
+  const dayOffset = (iso) => Math.round((new Date(iso + 'T00:00') - gridStart) / 86400000);
+  const totalCols = Math.ceil(grid.days.length / 7);
+  const stripWidth = totalCols * COL_PX;
+  const episodeBars = (grid.episodes || []).map((ep) => {
+    const sOff = Math.max(0, dayOffset(ep.start));
+    const eOff = Math.min(grid.days.length - 1, dayOffset(ep.end));
+    const left = Math.floor(sOff / 7) * COL_PX;
+    const right = Math.floor(eOff / 7) * COL_PX + 12;
+    const w = Math.max(6, right - left);
+    const tip = `${ep.start} → ${ep.ongoing ? 'ongoing' : ep.end}`;
+    return `<div class="episode-bar${ep.ongoing ? ' ongoing' : ''}" style="left:${left}px;width:${w}px" title="${tip}"></div>`;
   }).join('');
 
   const heatCard = el(`
     <div class="cfz-card heatmap-card" style="margin-bottom:1rem">
       ${cardTitle('Seismic Activity — last 365 days')}
-      <div class="grid-scroll"><div class="activity-grid">${cells}</div></div>
+      <div class="grid-scroll">
+        <div class="heatmap-stack" style="width:${stripWidth}px">
+          <div class="episode-strip">${episodeBars}</div>
+          <div class="activity-grid">${cells}</div>
+        </div>
+      </div>
       <div class="heatmap-legend">
         <div class="grid-cell lu" title="No tracking / no data"></div>
-        <span style="margin-right:0.75rem;font-size:0.7rem;color:var(--muted)">No data</span>
+        <span style="margin-right:0.6rem;font-size:0.7rem;color:var(--muted)">No data</span>
         <div class="grid-cell l0" title="Good day (no pain logged)"></div>
         <span style="font-size:0.7rem;color:var(--muted)">Good day</span>
-        <span style="margin-left:0.75rem;margin-right:0.5rem;font-size:0.7rem;color:var(--muted)">Pain:</span>
+        <span style="margin-left:0.6rem;margin-right:0.5rem;font-size:0.7rem;color:var(--muted)">Pain:</span>
         <div class="grid-cell l1" title="Low pain"></div>
         <div class="grid-cell l2" title="Moderate pain"></div>
         <div class="grid-cell l3" title="High pain"></div>
         <div class="grid-cell l4" title="Very high pain"></div>
-        <span style="font-size:0.7rem;color:var(--muted)">high</span>
-        <span style="margin-left:auto">${grid.max_count ? `Peak: ${grid.max_count}` : ''}</span>
+        <div class="grid-cell l4 ongoing" title="Ongoing (still going)" style="margin-left:0.6rem"></div>
+        <span style="font-size:0.7rem;color:var(--muted)">Ongoing</span>
       </div>
     </div>`);
   app.appendChild(heatCard);
@@ -465,15 +499,19 @@ function entryRow(e) {
   const meds = (e.medications || []).map(m => m.name).join(', ');
   const press = e.weather_data && e.weather_data.pressure_hpa;
   const hasWeather = press && press !== 'N/A';
+  const durText = e.is_ongoing
+    ? ' · ongoing'
+    : (e.duration_minutes != null ? ` · ${fmtDuration(e.duration_minutes)}` : '');
   return `
     <div class="entry-row">
       <div style="flex:1;min-width:0">
         <div>
           <span class="entry-type">${esc(e.headache_type?.name || '—')}</span>
+          ${e.is_ongoing ? '<span class="ongoing-tag">&#9679; ongoing</span>' : ''}
           <span class="entry-ts">${fmtDate(e.timestamp)}</span>
         </div>
         <div class="entry-meta">
-          ${esc(zones)}${e.duration_minutes != null ? ` · ${e.duration_minutes}min` : ''}${meds ? ` · ${esc(meds)}` : ''}
+          ${esc(zones)}${durText}${meds ? ` · ${esc(meds)}` : ''}
         </div>
         ${hasWeather ? `<div class="entry-weather">${press} hPa · ${esc(e.weather_data.conditions || '')}</div>` : ''}
       </div>
@@ -497,16 +535,20 @@ function entryRow(e) {
 async function renderLog() {
   const editId = location.hash.replace(/^#\//, '').split('/')[1] || null;
 
-  const [types, meds, locs, zones, settings] = await Promise.all([
+  const [types, meds, locs, zones, settings, allEntries] = await Promise.all([
     api.get('/api/headache_types'),
     api.get('/api/medications'),
     api.get('/api/locations'),
     api.get('/api/pain_zones'),
     api.get('/api/settings'),
+    api.get('/api/entries'),
   ]);
 
   const goodDayTypeId = settings.good_day_type_id;
   const painTypes = types.filter((t) => t.id !== goodDayTypeId);
+
+  // The 5 most recent non-good-day entries are offered as "continues episode"
+  // link targets (exclude the entry being edited so it can't link to itself).
 
   let entry = null;
   if (editId) {
@@ -537,11 +579,21 @@ async function renderLog() {
 
   const tsValue = editId && entry ? formatToLocalDatetimeInput(entry.timestamp) : nowLocal;
   const typeValue = editId && entry && !entry.is_good_day ? entry.headache_type.id : '';
-  const durValue = editId && entry && entry.duration_minutes ? entry.duration_minutes : '';
+  const endValue = editId && entry && entry.end_time ? formatToLocalDatetimeInput(entry.end_time) : '';
+  const ongoingValue = editId && entry ? !!entry.is_ongoing : false;
+  const linkValue = editId && entry && entry.linked_entry_id ? entry.linked_entry_id : '';
   const locValue = editId && entry && entry.location ? entry.location.id : '';
   const notesValue = editId && entry ? (entry.notes || '') : '';
   const medIds = editId && entry && !entry.is_good_day ? new Set(entry.medications.map(m => m.id)) : new Set();
   const zoneIds = editId && entry && !entry.is_good_day ? new Set(entry.pain_zones.map(z => z.id)) : new Set();
+
+  // Recent non-good-day entries available as episode-link targets.
+  const linkCandidates = allEntries
+    .filter((e) => !e.is_good_day && String(e.id) !== String(editId))
+    .slice(0, 5);
+
+  // Local ongoing flag, toggled by the "Still going" button / end-time edits.
+  let ongoing = ongoingValue;
 
   function buildFormHTML(currentMode) {
     const isPain = currentMode === 'pain';
@@ -577,10 +629,25 @@ async function renderLog() {
             </div>
 
             <div class="form-group">
-              <label class="cfz-label" for="f-dur">Duration (min)</label>
-              <input id="f-dur" name="duration_minutes" type="number" min="0" placeholder="e.g. 120"
-                value="${durValue}"
+              <label class="cfz-label" for="f-end">End Time</label>
+              <input id="f-end" name="end_time" type="datetime-local" value="${endValue}"
                 class="cfz-input" />
+              <button type="button" class="cfz-btn-add still-going-btn${ongoing ? ' active' : ''}" id="still-going-btn"
+                style="margin-top:0.5rem">
+                Still going (end of day)
+              </button>
+              <p style="font-size:0.75rem;color:var(--muted);margin-top:0.4rem">
+                Leave blank if unknown. "Still going" sets the end to 11:59 PM and flags the episode as ongoing.
+              </p>
+            </div>
+
+            <div class="form-group">
+              <label class="cfz-label" for="f-link">Continues episode</label>
+              <select id="f-link" name="linked_entry_id" class="cfz-input">
+                <option value="">— New episode —</option>
+                ${linkCandidates.map((e) => `<option value="${e.id}"${linkValue == e.id ? ' selected' : ''}>${esc(e.headache_type?.name || 'Entry')} · ${esc(fmtDate(e.timestamp))}</option>`).join('')}
+              </select>
+              ${linkCandidates.length === 0 ? '<p style="font-size:0.75rem;color:var(--muted)">No earlier entries to link to yet.</p>' : '<p style="font-size:0.75rem;color:var(--muted)">Link to a previous entry if this is the same headache continuing.</p>'}
             </div>
 
             <div class="form-group">
@@ -658,6 +725,24 @@ async function renderLog() {
       cb.addEventListener('change', () =>
         cb.closest('.zone-chip').classList.toggle('selected', cb.checked)));
 
+    // "Still going (end of day)" → set end time to 23:59 of the start day + flag ongoing.
+    const stillBtn = app.querySelector('#still-going-btn');
+    const endInput = app.querySelector('#f-end');
+    if (stillBtn && endInput) {
+      stillBtn.addEventListener('click', () => {
+        const tsInput = app.querySelector('#f-ts');
+        const startDay = (tsInput.value || nowLocal).slice(0, 10);
+        endInput.value = `${startDay}T23:59`;
+        ongoing = true;
+        stillBtn.classList.add('active');
+      });
+      // Editing the end time by hand clears the ongoing flag.
+      endInput.addEventListener('input', () => {
+        ongoing = false;
+        stillBtn.classList.remove('active');
+      });
+    }
+
     // Form submit
     app.querySelector('#entry-form').addEventListener('submit', async (ev) => {
       ev.preventDefault();
@@ -691,7 +776,9 @@ async function renderLog() {
           const payload = {
             timestamp:        f.timestamp.value ? new Date(f.timestamp.value).toISOString() : null,
             headache_type_id: Number(f.headache_type_id.value),
-            duration_minutes: f.duration_minutes.value ? Number(f.duration_minutes.value) : null,
+            end_time:         f.end_time.value ? new Date(f.end_time.value).toISOString() : null,
+            is_ongoing:       ongoing,
+            linked_entry_id:  f.linked_entry_id.value ? Number(f.linked_entry_id.value) : null,
             medication_ids,
             location_id:      f.location_id.value ? Number(f.location_id.value) : null,
             pain_zone_ids,

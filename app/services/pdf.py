@@ -27,6 +27,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from app.api.entries import entry_duration_minutes
 from app.models.models import Entry
 from app.seed import GOOD_DAY_TYPE_NAME
 
@@ -167,16 +168,17 @@ def build_pdf(entries: list[Entry], start: date | None = None, end: date | None 
     flow.append(Paragraph("3. Medication Efficacy Summary", s["CFZHeading"]))
     med_durations: dict[str, list[int]] = {}
     for e in pain_entries:
+        dur = entry_duration_minutes(e)
         if e.medications:
             for med in e.medications:
-                if e.duration_minutes is not None:
-                    med_durations.setdefault(med.name, []).append(e.duration_minutes)
+                if dur is not None:
+                    med_durations.setdefault(med.name, []).append(dur)
                 else:
                     med_durations.setdefault(med.name, [])
         else:
             bucket = "None / Untreated"
-            if e.duration_minutes is not None:
-                med_durations.setdefault(bucket, []).append(e.duration_minutes)
+            if dur is not None:
+                med_durations.setdefault(bucket, []).append(dur)
             else:
                 med_durations.setdefault(bucket, [])
     if med_durations:
@@ -248,7 +250,11 @@ def build_pdf(entries: list[Entry], start: date | None = None, end: date | None 
         for e in sorted(pain_entries, key=lambda x: x.timestamp):
             zones = ", ".join(z.zone_name for z in e.pain_zones) or "—"
             med = ", ".join(m.name for m in e.medications) if e.medications else "—"
-            dur = f"{e.duration_minutes} min" if e.duration_minutes is not None else "—"
+            if e.is_ongoing:
+                dur = "ongoing"
+            else:
+                dur_min = entry_duration_minutes(e)
+                dur = f"{dur_min} min" if dur_min is not None else "—"
             header = (
                 f"<b>{e.timestamp.strftime('%Y-%m-%d %H:%M')}</b> — "
                 f"{e.headache_type.name} | Zones: {zones} | Med: {med} | Duration: {dur}"

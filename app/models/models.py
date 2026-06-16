@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Integer,
@@ -113,7 +114,19 @@ class Entry(Base):
     headache_type_id: Mapped[int] = mapped_column(
         ForeignKey("headache_types.id"), nullable=False
     )
+    # Legacy free-form duration (no longer written from the UI; kept for old rows
+    # and used as a fallback when end_time is absent). Prefer end_time going forward.
     duration_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # When the headache ended. For a "still going" entry this is set to 23:59 of the
+    # onset day and is_ongoing is True until a real end time is recorded.
+    end_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    is_ongoing: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Self-reference: this entry continues a prior (non-good-day) entry's episode.
+    linked_entry_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("entries.id", ondelete="SET NULL"), nullable=True
+    )
     location_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("locations.id"), nullable=True
     )
