@@ -87,3 +87,4 @@ class EntryOut(BaseModel):
     notes: Optional[str] = None
     created_at: datetime
     is_good_day: bool = False
+    auto_generated: bool = False

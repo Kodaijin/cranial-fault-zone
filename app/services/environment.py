@@ -7,6 +7,7 @@ code can be resolved from city/state.
 """
 from __future__ import annotations
 
+from datetime import date as _date
 from typing import Optional
 
 import httpx
@@ -165,3 +166,78 @@ async def fetch_environment(
                 result["source"] = "open-meteo+pollen.com"
 
     return result
+
+
+def _mean(values) -> Optional[float]:
+    """Mean of the non-null numeric values, rounded to 2 decimals, or None."""
+    nums = [v for v in (values or []) if isinstance(v, (int, float))]
+    if not nums:
+        return None
+    return round(sum(nums) / len(nums), 2)
+
+
+async def fetch_environment_historical(
+    lat: Optional[float],
+    lon: Optional[float],
+    day: _date,
+    city: Optional[str] = None,  # accepted for signature parity; unused (no pollen history)
+    state: Optional[str] = None,
+) -> dict:
+    """Daily-mean air quality for a past `day` from the Open-Meteo Air Quality API
+    (which serves historical hourly data). Pollen has no historical source, so the
+    pollen fields stay N/A. Same payload shape as fetch_environment."""
+    if lat is None or lon is None:
+        return _na_payload()
+
+    ds = day.isoformat()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://air-quality-api.open-meteo.com/v1/air-quality",
+                params={
+                    "latitude": lat,
+                    "longitude": lon,
+                    "start_date": ds,
+                    "end_date": ds,
+                    "hourly": (
+                        "pm10,pm2_5,ozone,"
+                        "carbon_monoxide,nitrogen_dioxide,nitrogen_monoxide,sulphur_dioxide"
+                    ),
+                },
+            )
+            resp.raise_for_status()
+            hourly = resp.json().get("hourly", {})
+
+            pm2_5 = _mean(hourly.get("pm2_5"))
+            pm10 = _mean(hourly.get("pm10"))
+            ozone = _mean(hourly.get("ozone"))
+            carbon_monoxide = _mean(hourly.get("carbon_monoxide"))
+            nitrogen_dioxide = _mean(hourly.get("nitrogen_dioxide"))
+            nitrogen_monoxide = _mean(hourly.get("nitrogen_monoxide"))
+            sulphur_dioxide = _mean(hourly.get("sulphur_dioxide"))
+
+            nitrogen_oxides = None
+            if nitrogen_monoxide is not None and nitrogen_dioxide is not None:
+                nitrogen_oxides = round(nitrogen_monoxide + nitrogen_dioxide, 2)
+
+            if all(v is None for v in (pm2_5, pm10, ozone, carbon_monoxide,
+                                       nitrogen_dioxide, nitrogen_monoxide, sulphur_dioxide)):
+                return _na_payload()
+
+            return {
+                "pm2_5": pm2_5 if pm2_5 is not None else NA,
+                "pm10": pm10 if pm10 is not None else NA,
+                "ozone": ozone if ozone is not None else NA,
+                "carbon_monoxide": carbon_monoxide if carbon_monoxide is not None else NA,
+                "nitrogen_dioxide": nitrogen_dioxide if nitrogen_dioxide is not None else NA,
+                "nitrogen_monoxide": nitrogen_monoxide if nitrogen_monoxide is not None else NA,
+                "sulphur_dioxide": sulphur_dioxide if sulphur_dioxide is not None else NA,
+                "nitrogen_oxides": nitrogen_oxides if nitrogen_oxides is not None else NA,
+                # Pollen has no historical feed — left N/A for backfilled days.
+                "tree_pollen": NA,
+                "grass_pollen": NA,
+                "weed_pollen": NA,
+                "source": "open-meteo-historical",
+            }
+    except (httpx.HTTPError, KeyError, ValueError):
+        return _na_payload()

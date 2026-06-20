@@ -55,6 +55,7 @@ def _migrate() -> None:
         "end_time": "end_time DATETIME",
         "is_ongoing": "is_ongoing INTEGER NOT NULL DEFAULT 0",
         "linked_entry_id": "linked_entry_id INTEGER REFERENCES entries(id)",
+        "auto_generated": "auto_generated INTEGER NOT NULL DEFAULT 0",
     }
     with engine.begin() as conn:
         existing = {

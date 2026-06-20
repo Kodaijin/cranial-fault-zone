@@ -16,6 +16,7 @@ from app.seed import GOOD_DAY_TYPE_NAME
 from app.services.environment import fetch_environment
 from app.services.geocode import geocode
 from app.services.weather import fetch_weather
+from app.tz import to_app_date
 
 router = APIRouter(prefix="/api", tags=["entries"])
 
@@ -60,6 +61,7 @@ def serialize_entry(entry: Entry) -> dict:
         "notes": entry.notes,
         "created_at": entry.created_at,
         "is_good_day": is_good_day,
+        "auto_generated": bool(entry.auto_generated),
     }
 
 
@@ -74,6 +76,18 @@ def _load_entry(db: Session, entry_id: int) -> Entry | None:
             selectinload(Entry.pain_zones),
         )
     )
+
+
+def _remove_auto_good_days_on_date(db: Session, timestamp: datetime | None) -> None:
+    """Delete any auto-generated good-day placeholder sharing this entry's local
+    day, so a real (or manually logged) entry replaces the filler for that day."""
+    if timestamp is None:
+        timestamp = datetime.now(timezone.utc)
+    target = to_app_date(timestamp)
+    autos = db.scalars(select(Entry).where(Entry.auto_generated.is_(True))).all()
+    for e in autos:
+        if e.timestamp is not None and to_app_date(e.timestamp) == target:
+            db.delete(e)
 
 
 def _get_good_day_type(db: Session) -> HeadacheType:
@@ -182,6 +196,8 @@ async def create_entry(payload: EntryCreate, db: Session = Depends(get_db)):
         if payload.timestamp is not None:
             entry.timestamp = payload.timestamp
 
+        # A manually logged good day replaces any auto placeholder for that day.
+        _remove_auto_good_days_on_date(db, payload.timestamp)
         db.add(entry)
         db.commit()
         db.refresh(entry)
@@ -250,6 +266,8 @@ async def create_entry(payload: EntryCreate, db: Session = Depends(get_db)):
     if payload.timestamp is not None:
         entry.timestamp = payload.timestamp
 
+    # A real pain entry replaces any auto good-day placeholder for that day.
+    _remove_auto_good_days_on_date(db, payload.timestamp)
     db.add(entry)
     db.commit()
     db.refresh(entry)

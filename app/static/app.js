@@ -151,7 +151,27 @@ async function router() {
 }
 
 window.addEventListener('hashchange', router);
-window.addEventListener('DOMContentLoaded', router);
+
+// On first load, backfill any missing days with auto good-day entries (captures
+// historical weather/air/pollen). Render immediately from current data, then
+// refresh once the fill completes so new entries appear without a manual reload.
+let _goodDaysFilled = false;
+async function ensureGoodDaysFilled() {
+  if (_goodDaysFilled) return 0;
+  _goodDaysFilled = true;
+  try {
+    const res = await api.post('/api/good_days/fill', {});
+    return res && res.created ? res.created : 0;
+  } catch (_) {
+    return 0;  // never block the UI on backfill failure
+  }
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+  router();
+  const created = await ensureGoodDaysFilled();
+  if (created) router();
+});
 
 // ═════════════════════════════════════════════════════════
 //  DASHBOARD
@@ -241,7 +261,18 @@ async function renderDashboard() {
   requestAnimationFrame(() => drawSeismo(si, stColor));
 
   // ── Activity Heatmap ───────────────────────────────────
-  const cells = grid.days.map((d) => {
+  // Show fewer days on small screens so the strip fits without a horizontal
+  // scrollbar; the full year still shows on wider screens. Cell + gap sizes are
+  // driven by CSS variables (set below) that stay in sync with COL_PX here.
+  const isMobile = window.matchMedia('(max-width: 640px)').matches;
+  const CELL = isMobile ? 9 : 12;
+  const GAP  = isMobile ? 2 : 3;
+  const COL_PX = CELL + GAP;
+  const visibleCount = isMobile ? 182 : grid.days.length;  // ~6 months on mobile
+  const viewDays = grid.days.slice(-visibleCount);
+  const rangeLabel = visibleCount >= 365 ? 'last 365 days' : `last ${visibleCount} days`;
+
+  const cells = viewDays.map((d) => {
     let cls, tooltip;
     if (d.state === 'pain') {
       cls = `l${d.level}`;
@@ -258,27 +289,30 @@ async function renderDashboard() {
   }).join('');
 
   // Episode-bar strip — one bar per episode, positioned over its week-columns.
-  // The grid flows column-by-column (7 rows), so each week is one 15px column.
-  const COL_PX = 15;
-  const gridStart = new Date(grid.start + 'T00:00');
-  const dayOffset = (iso) => Math.round((new Date(iso + 'T00:00') - gridStart) / 86400000);
-  const totalCols = Math.ceil(grid.days.length / 7);
+  // The grid flows column-by-column (7 rows), so each week is one COL_PX column.
+  const viewStart = new Date(viewDays[0].date + 'T00:00');
+  const dayOffset = (iso) => Math.round((new Date(iso + 'T00:00') - viewStart) / 86400000);
+  const totalCols = Math.ceil(viewDays.length / 7);
   const stripWidth = totalCols * COL_PX;
   const episodeBars = (grid.episodes || []).map((ep) => {
-    const sOff = Math.max(0, dayOffset(ep.start));
-    const eOff = Math.min(grid.days.length - 1, dayOffset(ep.end));
+    const sRaw = dayOffset(ep.start);
+    const eRaw = dayOffset(ep.end);
+    // Skip episodes that fall entirely outside the visible window.
+    if (eRaw < 0 || sRaw > viewDays.length - 1) return '';
+    const sOff = Math.max(0, sRaw);
+    const eOff = Math.min(viewDays.length - 1, eRaw);
     const left = Math.floor(sOff / 7) * COL_PX;
-    const right = Math.floor(eOff / 7) * COL_PX + 12;
-    const w = Math.max(6, right - left);
+    const right = Math.floor(eOff / 7) * COL_PX + CELL;
+    const w = Math.max(CELL / 2, right - left);
     const tip = `${ep.start} → ${ep.ongoing ? 'ongoing' : ep.end}`;
     return `<div class="episode-bar${ep.ongoing ? ' ongoing' : ''}" style="left:${left}px;width:${w}px" title="${tip}"></div>`;
   }).join('');
 
   const heatCard = el(`
     <div class="cfz-card heatmap-card" style="margin-bottom:1rem">
-      ${cardTitle('Seismic Activity — last 365 days')}
+      ${cardTitle('Seismic Activity — ' + rangeLabel)}
       <div class="grid-scroll">
-        <div class="heatmap-stack" style="width:${stripWidth}px">
+        <div class="heatmap-stack" style="width:${stripWidth}px;--cell-size:${CELL}px;--cell-gap:${GAP}px">
           <div class="episode-strip">${episodeBars}</div>
           <div class="activity-grid">${cells}</div>
         </div>

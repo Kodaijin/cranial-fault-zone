@@ -123,6 +123,10 @@ class Entry(Base):
         DateTime(timezone=True), nullable=True
     )
     is_ongoing: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # True for good-day rows created automatically to fill an otherwise-empty day
+    # (so we capture environmental data). These are replaced if a real entry is
+    # later logged for the same day.
+    auto_generated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Self-reference: this entry continues a prior (non-good-day) entry's episode.
     linked_entry_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("entries.id", ondelete="SET NULL"), nullable=True

@@ -5,6 +5,7 @@ a payload of "N/A" values so an entry save is never blocked.
 """
 from __future__ import annotations
 
+from datetime import date as _date
 from typing import Optional
 
 import httpx
@@ -74,6 +75,72 @@ async def fetch_weather(lat: Optional[float], lon: Optional[float]) -> dict:
                 "humidity_pct": humidity if humidity is not None else NA,
                 "conditions": conditions,
                 "source": "open-meteo",
+            }
+    except (httpx.HTTPError, KeyError, ValueError):
+        return _na_payload()
+
+
+def _mean(values) -> Optional[float]:
+    """Mean of the non-null numeric values, rounded to 1 decimal, or None."""
+    nums = [v for v in (values or []) if isinstance(v, (int, float))]
+    if not nums:
+        return None
+    return round(sum(nums) / len(nums), 1)
+
+
+def _mode_code(codes) -> Optional[int]:
+    """Most frequent non-null weather code across the day."""
+    vals = [c for c in (codes or []) if c is not None]
+    if not vals:
+        return None
+    return max(set(vals), key=vals.count)
+
+
+async def fetch_weather_historical(
+    lat: Optional[float], lon: Optional[float], day: _date
+) -> dict:
+    """Daily-mean weather for a past `day`. Recent days (<= 90d) come from the
+    forecast endpoint's past data; older days from the ERA5 archive (which lags
+    a few days). Returns the same payload shape as fetch_weather."""
+    if lat is None or lon is None:
+        return _na_payload()
+
+    age_days = (_date.today() - day).days
+    base = (
+        "https://api.open-meteo.com/v1/forecast"
+        if age_days <= 90
+        else "https://archive-api.open-meteo.com/v1/archive"
+    )
+    ds = day.isoformat()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                base,
+                params={
+                    "latitude": lat,
+                    "longitude": lon,
+                    "start_date": ds,
+                    "end_date": ds,
+                    "hourly": "temperature_2m,relative_humidity_2m,surface_pressure,weather_code",
+                },
+            )
+            resp.raise_for_status()
+            hourly = resp.json().get("hourly", {})
+
+            temp = _mean(hourly.get("temperature_2m"))
+            pressure = _mean(hourly.get("surface_pressure"))
+            humidity = _mean(hourly.get("relative_humidity_2m"))
+            code = _mode_code(hourly.get("weather_code"))
+            conditions = _WMO_CODES.get(code, "Unknown") if code is not None else NA
+
+            if temp is None and pressure is None and humidity is None:
+                return _na_payload()
+            return {
+                "temp_c": temp if temp is not None else NA,
+                "pressure_hpa": pressure if pressure is not None else NA,
+                "humidity_pct": round(humidity) if humidity is not None else NA,
+                "conditions": conditions,
+                "source": "open-meteo-historical",
             }
     except (httpx.HTTPError, KeyError, ValueError):
         return _na_payload()
