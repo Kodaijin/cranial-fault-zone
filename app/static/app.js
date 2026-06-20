@@ -117,11 +117,103 @@ function cardTitle(t) {
   return `<div class="card-title">${esc(t)}</div>`;
 }
 
+// ── Activity heatmap (shared by dashboard + expanded page) ───
+const _MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Build the heatmap stack (episode strip + day grid), optionally with a month-label
+// row. `days` is how many trailing days of grid.days to render; cell/gap set size.
+function heatmapHTML(grid, { days, cell, gap, withMonths = false }) {
+  const COL_PX = cell + gap;
+  const viewDays = grid.days.slice(-days);
+  if (viewDays.length === 0) return '';
+
+  const cells = viewDays.map((d) => {
+    let cls, tooltip;
+    if (d.state === 'pain') {
+      cls = `l${d.level}`;
+      tooltip = `${d.date}: pain${d.count > 1 ? ` (${d.count} overlapping episodes)` : ''}`;
+    } else if (d.state === 'good') {
+      cls = 'l0';
+      tooltip = `${d.date}: good day (no pain)`;
+    } else {
+      cls = 'lu';
+      tooltip = `${d.date}: no tracking`;
+    }
+    if (d.ongoing) { cls += ' ongoing'; tooltip += ' · still going'; }
+    return `<div class="grid-cell ${cls}" title="${tooltip}"></div>`;
+  }).join('');
+
+  // Episode-bar strip — one bar per episode, positioned over its week-columns.
+  // The grid flows column-by-column (7 rows), so each week is one COL_PX column.
+  const viewStart = new Date(viewDays[0].date + 'T00:00');
+  const dayOffset = (iso) => Math.round((new Date(iso + 'T00:00') - viewStart) / 86400000);
+  const totalCols = Math.ceil(viewDays.length / 7);
+  const stripWidth = totalCols * COL_PX;
+  const episodeBars = (grid.episodes || []).map((ep) => {
+    const sRaw = dayOffset(ep.start);
+    const eRaw = dayOffset(ep.end);
+    // Skip episodes that fall entirely outside the visible window.
+    if (eRaw < 0 || sRaw > viewDays.length - 1) return '';
+    const sOff = Math.max(0, sRaw);
+    const eOff = Math.min(viewDays.length - 1, eRaw);
+    const left = Math.floor(sOff / 7) * COL_PX;
+    const right = Math.floor(eOff / 7) * COL_PX + cell;
+    const w = Math.max(cell / 2, right - left);
+    const tip = `${ep.start} → ${ep.ongoing ? 'ongoing' : ep.end}`;
+    return `<div class="episode-bar${ep.ongoing ? ' ongoing' : ''}" style="left:${left}px;width:${w}px" title="${tip}"></div>`;
+  }).join('');
+
+  // Optional month labels positioned at the column where each new month begins.
+  let monthsRow = '';
+  if (withMonths) {
+    const labels = [];
+    let lastMonth = -1;
+    for (let c = 0; c < totalCols; c++) {
+      const d = viewDays[c * 7];
+      if (!d) break;
+      const m = new Date(d.date + 'T00:00').getMonth();
+      if (m !== lastMonth) {
+        lastMonth = m;
+        labels.push(`<span class="heatmap-month" style="left:${c * COL_PX}px">${_MONTH_ABBR[m]}</span>`);
+      }
+    }
+    monthsRow = `<div class="heatmap-months" style="width:${stripWidth}px">${labels.join('')}</div>`;
+  }
+
+  return `
+    <div class="grid-scroll">
+      ${monthsRow}
+      <div class="heatmap-stack" style="width:${stripWidth}px;--cell-size:${cell}px;--cell-gap:${gap}px">
+        <div class="episode-strip">${episodeBars}</div>
+        <div class="activity-grid">${cells}</div>
+      </div>
+    </div>`;
+}
+
+function heatmapLegend() {
+  return `
+    <div class="heatmap-legend">
+      <div class="grid-cell lu" title="No tracking / no data"></div>
+      <span style="margin-right:0.6rem;font-size:0.7rem;color:var(--muted)">No data</span>
+      <div class="grid-cell l0" title="Good day (no pain logged)"></div>
+      <span style="font-size:0.7rem;color:var(--muted)">Good day</span>
+      <span style="margin-left:0.6rem;margin-right:0.5rem;font-size:0.7rem;color:var(--muted)">Pain:</span>
+      <div class="grid-cell l1" title="Low pain"></div>
+      <div class="grid-cell l2" title="Moderate pain"></div>
+      <div class="grid-cell l3" title="High pain"></div>
+      <div class="grid-cell l4" title="Very high pain"></div>
+      <div class="grid-cell l4 ongoing" title="Ongoing (still going)" style="margin-left:0.6rem"></div>
+      <span style="font-size:0.7rem;color:var(--muted)">Ongoing</span>
+    </div>`;
+}
+
 // ── Router ───────────────────────────────────────────────
 const routes = {
   dashboard: renderDashboard,
   log:       renderLog,
   entries:   renderEntries,
+  activity:  renderActivity,
   reports:   renderReports,
   manage:    renderManage,
 };
@@ -260,77 +352,22 @@ async function renderDashboard() {
   // Draw seismograph canvas after DOM insertion
   requestAnimationFrame(() => drawSeismo(si, stColor));
 
-  // ── Activity Heatmap ───────────────────────────────────
-  // Show fewer days on small screens so the strip fits without a horizontal
-  // scrollbar; the full year still shows on wider screens. Cell + gap sizes are
-  // driven by CSS variables (set below) that stay in sync with COL_PX here.
-  const isMobile = window.matchMedia('(max-width: 640px)').matches;
-  const CELL = isMobile ? 9 : 12;
-  const GAP  = isMobile ? 2 : 3;
-  const COL_PX = CELL + GAP;
-  const visibleCount = isMobile ? 182 : grid.days.length;  // ~6 months on mobile
-  const viewDays = grid.days.slice(-visibleCount);
-  const rangeLabel = visibleCount >= 365 ? 'last 365 days' : `last ${visibleCount} days`;
-
-  const cells = viewDays.map((d) => {
-    let cls, tooltip;
-    if (d.state === 'pain') {
-      cls = `l${d.level}`;
-      tooltip = `${d.date}: pain${d.count > 1 ? ` (${d.count} overlapping episodes)` : ''}`;
-    } else if (d.state === 'good') {
-      cls = 'l0';
-      tooltip = `${d.date}: good day (no pain)`;
-    } else {
-      cls = 'lu';
-      tooltip = `${d.date}: no tracking`;
-    }
-    if (d.ongoing) { cls += ' ongoing'; tooltip += ' · still going'; }
-    return `<div class="grid-cell ${cls}" title="${tooltip}"></div>`;
-  }).join('');
-
-  // Episode-bar strip — one bar per episode, positioned over its week-columns.
-  // The grid flows column-by-column (7 rows), so each week is one COL_PX column.
-  const viewStart = new Date(viewDays[0].date + 'T00:00');
-  const dayOffset = (iso) => Math.round((new Date(iso + 'T00:00') - viewStart) / 86400000);
-  const totalCols = Math.ceil(viewDays.length / 7);
-  const stripWidth = totalCols * COL_PX;
-  const episodeBars = (grid.episodes || []).map((ep) => {
-    const sRaw = dayOffset(ep.start);
-    const eRaw = dayOffset(ep.end);
-    // Skip episodes that fall entirely outside the visible window.
-    if (eRaw < 0 || sRaw > viewDays.length - 1) return '';
-    const sOff = Math.max(0, sRaw);
-    const eOff = Math.min(viewDays.length - 1, eRaw);
-    const left = Math.floor(sOff / 7) * COL_PX;
-    const right = Math.floor(eOff / 7) * COL_PX + CELL;
-    const w = Math.max(CELL / 2, right - left);
-    const tip = `${ep.start} → ${ep.ongoing ? 'ongoing' : ep.end}`;
-    return `<div class="episode-bar${ep.ongoing ? ' ongoing' : ''}" style="left:${left}px;width:${w}px" title="${tip}"></div>`;
-  }).join('');
-
+  // ── Activity Heatmap (last 4 months; tap to expand) ────
   const heatCard = el(`
-    <div class="cfz-card heatmap-card" style="margin-bottom:1rem">
-      ${cardTitle('Seismic Activity — ' + rangeLabel)}
-      <div class="grid-scroll">
-        <div class="heatmap-stack" style="width:${stripWidth}px;--cell-size:${CELL}px;--cell-gap:${GAP}px">
-          <div class="episode-strip">${episodeBars}</div>
-          <div class="activity-grid">${cells}</div>
-        </div>
+    <a href="#/activity" class="cfz-card heatmap-card heatmap-link" style="margin-bottom:1rem">
+      <div class="heatmap-head">
+        ${cardTitle('Seismic Activity — last 4 months')}
+        <span class="heatmap-expand">
+          Expand
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
+            <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+          </svg>
+        </span>
       </div>
-      <div class="heatmap-legend">
-        <div class="grid-cell lu" title="No tracking / no data"></div>
-        <span style="margin-right:0.6rem;font-size:0.7rem;color:var(--muted)">No data</span>
-        <div class="grid-cell l0" title="Good day (no pain logged)"></div>
-        <span style="font-size:0.7rem;color:var(--muted)">Good day</span>
-        <span style="margin-left:0.6rem;margin-right:0.5rem;font-size:0.7rem;color:var(--muted)">Pain:</span>
-        <div class="grid-cell l1" title="Low pain"></div>
-        <div class="grid-cell l2" title="Moderate pain"></div>
-        <div class="grid-cell l3" title="High pain"></div>
-        <div class="grid-cell l4" title="Very high pain"></div>
-        <div class="grid-cell l4 ongoing" title="Ongoing (still going)" style="margin-left:0.6rem"></div>
-        <span style="font-size:0.7rem;color:var(--muted)">Ongoing</span>
-      </div>
-    </div>`);
+      ${heatmapHTML(grid, { days: 120, cell: 12, gap: 3 })}
+      ${heatmapLegend()}
+    </a>`);
   app.appendChild(heatCard);
 
   // ── Quests ─────────────────────────────────────────────
@@ -376,6 +413,45 @@ async function renderDashboard() {
       <div class="achv-grid">${achvHtml}</div>
     </div>`));
 
+}
+
+// ═════════════════════════════════════════════════════════
+//  ACTIVITY (expanded full-year heatmap)
+// ═════════════════════════════════════════════════════════
+async function renderActivity() {
+  const grid = await api.get('/api/stats/grid');
+
+  // Summary counts across the full window.
+  let good = 0, pain = 0, tracked = 0;
+  for (const d of grid.days) {
+    if (d.state === 'untracked') continue;
+    tracked++;
+    if (d.state === 'pain') pain++;
+    else if (d.state === 'good') good++;
+  }
+
+  app.innerHTML = pageHeader(
+    '<span class="fault-accent">Seismic</span> Activity',
+    'Your full 365-day fault-line history.'
+  );
+
+  app.appendChild(el(
+    `<a href="#/dashboard" class="back-link">
+       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+       Back to dashboard
+     </a>`));
+
+  app.appendChild(el(`
+    <div class="cfz-card heatmap-card" style="margin-bottom:1rem">
+      ${cardTitle('Last 365 days')}
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.9rem">
+        <span class="stat-pill"><strong>${tracked}</strong> days tracked</span>
+        <span class="stat-pill" style="color:var(--stable)"><strong>${good}</strong> good</span>
+        <span class="stat-pill" style="color:var(--fault2)"><strong>${pain}</strong> pain</span>
+      </div>
+      ${heatmapHTML(grid, { days: grid.days.length, cell: 14, gap: 4, withMonths: true })}
+      ${heatmapLegend()}
+    </div>`));
 }
 
 // ── Seismograph canvas draw ──────────────────────────────

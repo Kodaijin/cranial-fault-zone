@@ -1,38 +1,60 @@
 # Cranial Fault Zone
 
-A self-contained, Dockerized web app for tracking migraines and headaches — with
-automatic environmental enrichment (weather, air quality, pollen), a GitHub-style
-activity grid, a gamification layer, range-filtered analytics, and a clinical PDF
-export. **No API keys required** — all environmental data comes from free, keyless
-sources.
+A self-contained, Dockerized web app for tracking migraines and headaches. It
+attaches environmental data (weather, air quality, pollen) to every entry, shows a
+GitHub-style activity grid, adds a gamification layer, runs range-filtered analytics,
+and produces a clinical PDF export. **No API keys required**: all environmental data
+comes from free, keyless sources.
+
+## Table of contents
+
+- [Features](#features)
+- [Tech stack](#tech-stack)
+- [Quick start](#quick-start)
+- [Project structure](#project-structure)
+- [API overview](#api-overview)
+- [Deploying to another Docker host](#deploying-to-another-docker-host)
+- [Updating a deployed instance](#updating-a-deployed-instance-without-losing-data)
+- [Notes](#notes)
+- [Changelog](#changelog)
 
 ---
 
 ## Features
 
-- **Log entries** with start/end time, headache type, **multiple medications**,
-  location, **multi-zone pain mapping**, and notes. Mark a headache **still going**
-  (ends at 11:59 PM, flagged ongoing) and **link entries** into one multi-day episode.
-  Past entries are fully **editable**.
+- **Log entries** with start and end time, headache type, multiple medications,
+  location, multi-zone pain mapping, and notes. Mark a headache **still going** (it
+  ends at 11:59 PM and stays flagged as ongoing) and **link entries** into one
+  multi-day episode. Past entries stay fully editable.
+- **Entries tab**: a dedicated navigation tab that lists your full log history, with
+  edit and delete buttons on each row. The edit button uses a distinct pencil icon so
+  it reads clearly next to delete.
 - **Automatic environmental snapshot** captured at save time for the entry's location:
-  - **Weather** (Open-Meteo): temperature, **barometric pressure**, humidity, conditions.
+  - **Weather** (Open-Meteo): temperature, barometric pressure, humidity, conditions.
   - **Air quality** (Open-Meteo): PM2.5, PM10, ozone, carbon monoxide, nitrogen
     dioxide, nitrogen monoxide, nitrogen oxides (NOₓ = NO + NO₂), sulphur dioxide.
   - **Pollen** (pollen.com / IQVIA, US): tree, grass, weed.
-  - Graceful fallback — if a source is unavailable the value is stored as `N/A` and
-    the save is never blocked. Editing an entry **preserves** its original snapshot.
-- **Dashboard**: gamification (XP, levels, streaks, quests, achievements), the
-  **Fault Zone Stability Index**, and a 365-day **activity grid** with three states —
-  untracked (before your first entry), **good day** (green, no pain), and pain days
-  (red intensity).
-- **Reports**: date-range selector (Week / Month / Year / custom) driving four charts
-  (pressure & humidity, major pollutants, trace pollutants, allergens) plus a
+  - If a source is unavailable the value is stored as `N/A` and the save still goes
+    through. Editing an entry keeps its original snapshot.
+- **Automatic good days**: in Auto mode, any day with no entry (from your first entry
+  through yesterday) is filled with a good-day record, so it captures the same weather
+  and air-quality data as a logged day. Past days pull historical values from
+  Open-Meteo. The backfill runs when you open the app, and logging a real entry for a
+  day replaces its placeholder. Manual mode turns this off and counts only the good
+  days you log yourself.
+- **Dashboard**: gamification (XP, levels, streaks, quests, achievements), the **Fault
+  Zone Stability Index**, and an **activity grid** of the last 4 months with three
+  states: untracked (before your first entry), good day (green, no pain), and pain days
+  (red intensity). Tap the grid to open the full 365-day view, which adds month labels
+  and good/pain/tracked totals.
+- **Reports**: a date-range selector (Week, Month, Year, or custom) drives four charts
+  (pressure and humidity, major pollutants, trace pollutants, allergens) plus a
   range-aware **clinical PDF export**.
 - **Clinical PDF**: total attacks, most-frequent pain locations, medication efficacy,
-  an **environmental exposure summary** (averages), and a chronological notes appendix —
-  black-on-white and print-friendly.
-- **Fixed GMT-8 day boundaries** — "end of day" is midnight GMT-8 regardless of the
-  host clock, so grids, streaks, and date ranges are consistent.
+  an environmental exposure summary (averages), and a chronological notes appendix. It
+  is black-on-white and print-friendly.
+- **Fixed GMT-8 day boundaries**: "end of day" is midnight GMT-8 no matter the host
+  clock, so grids, streaks, and date ranges stay consistent.
 
 ## Tech stack
 
@@ -57,8 +79,8 @@ docker compose up -d --build
 Then open <http://localhost:8000>. Stop with `docker compose down` (data is kept in
 the volume) or `docker compose down -v` to also wipe the database.
 
-No configuration is needed. `.env` is optional and unused — weather/air-quality/pollen
-are all keyless.
+No configuration is needed. `.env` is optional and unused; weather, air quality, and
+pollen are all keyless.
 
 ---
 
@@ -66,12 +88,14 @@ are all keyless.
 
 ```
 app/
-  api/          # route modules: health, crud, entries, stats, gamification, export
+  api/          # route modules: health, crud, entries, stats, settings,
+                #   gamification, good_days, export
   models/       # SQLAlchemy models
-  services/     # weather, environment (air quality), geocode, pdf, gamification
+  services/     # weather, environment (air quality), geocode, good_days, pdf,
+                #   gamification
   static/       # SPA assets (app.js, styles.css)
   templates/    # index.html shell
-  db.py         # engine/session/init
+  db.py         # engine/session/init + lightweight column migrations
   seed.py       # default headache types, locations, pain zones
   tz.py         # fixed GMT-8 timezone + day-bucketing helpers
   main.py       # FastAPI entrypoint
@@ -92,6 +116,8 @@ requirements.txt
 | GET | `/api/entries/{id}` | fetch one |
 | PUT | `/api/entries/{id}` | edit (preserves the original snapshot) |
 | DELETE | `/api/entries/{id}` | delete |
+| GET/PUT | `/api/settings` | good-day mode (`auto` / `manual`) |
+| POST | `/api/good_days/fill` | backfill auto good days (Auto mode only); called on app open |
 | GET | `/api/stats/grid` | 365-day activity grid (untracked / good / pain) |
 | GET | `/api/stats/trends?start=&end=` | time series for charts (GMT-8 day filter) |
 | GET | `/api/gamification` | XP, level, streaks, stability, quests, achievements |
@@ -119,9 +145,9 @@ docker compose up -d --build
 > named so the project is `cranialfaultzone` (or pass `-p cranialfaultzone`) if you
 > intend to restore an existing data volume by name.
 
-### 2. Move the data (optional — only to keep existing entries)
+### 2. Move the data (optional, only to keep existing entries)
 
-**On the old host** — export the volume to a tarball:
+**On the old host**, export the volume to a tarball:
 
 ```bash
 docker run --rm \
@@ -130,7 +156,7 @@ docker run --rm \
   alpine tar czf /backup/cranial-data.tar.gz -C /data .
 ```
 
-**On the new host** — restore it (with the app stopped):
+**On the new host**, restore it (with the app stopped):
 
 ```bash
 docker volume create cranialfaultzone_cranial-data
@@ -147,9 +173,9 @@ docker compose up -d
 
 Your code lives in the Docker **image**; your database lives in the separate named
 **volume** (`cranialfaultzone_cranial-data` → `/data/cranial.db`). Rebuilding the
-image recreates the container but **re-attaches the same volume**, so entries
-survive. The only thing that wipes data is `docker compose down -v` (the `-v`
-deletes volumes) — never use that to update.
+image recreates the container but re-attaches the same volume, so entries survive. The
+only thing that wipes data is `docker compose down -v` (the `-v` deletes volumes), so
+never use it to update.
 
 Standard data-safe update, run in the project folder on the host:
 
@@ -158,14 +184,14 @@ git pull origin main          # get the latest code
 docker compose up -d --build  # rebuild image + recreate container, keep the volume
 ```
 
-`--build` is required because the Python and static files are baked into the image
-at build time; it's fast (dependency layers are cached). New tables/seed rows added
-by an update (e.g. the `settings` table) are created automatically on startup, and a
-lightweight migration adds any new columns to existing tables (e.g. the entry
-`end_time`, `is_ongoing`, and `linked_entry_id` fields), so data migrates forward
-untouched.
+`--build` is required because the Python and static files are baked into the image at
+build time. It is fast because dependency layers are cached. New tables and seed rows
+from an update (for example the `settings` table) are created on startup, and a
+lightweight migration adds any new columns to existing tables (for example the entry
+`end_time`, `is_ongoing`, `linked_entry_id`, and `auto_generated` fields), so data
+moves forward untouched.
 
-**Optional — snapshot the volume before updating** (lets you roll back):
+**Optional: snapshot the volume before updating** (lets you roll back):
 
 ```bash
 docker run --rm \
@@ -186,9 +212,9 @@ auto-reload in `docker-compose.yml`:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Then a `git pull` is picked up live (uvicorn restarts on Python changes; static
-files are served fresh on next load). Trade-off: the running app now depends on the
-checked-out files on that host, so keep `--build` for a real production box and
+Then a `git pull` is picked up live (uvicorn restarts on Python changes; static files
+are served fresh on next load). The trade-off is that the running app now depends on
+the checked-out files on that host, so keep `--build` for a real production box and
 reserve the bind-mount for dev/staging.
 
 ### Quick reference
@@ -198,18 +224,41 @@ reserve the bind-mount for dev/staging.
 | Update + keep data (normal) | `git pull && docker compose up -d --build` |
 | Back up the DB volume | the `alpine tar` one-liner above |
 | Restart without rebuild (no code change) | `docker compose restart` |
-| ⚠️ Wipes the database — avoid | `docker compose down -v` |
+| Wipes the database (avoid) | `docker compose down -v` |
 
 ---
 
 ## Notes
 
-- **Port**: maps `8000:8000` — change in `docker-compose.yml` if it's taken.
+- **Port**: maps `8000:8000`; change it in `docker-compose.yml` if it's taken.
 - **Static assets** are baked into the image; after editing `app/static/*` or
-  `app/templates/*`, rebuild (`docker compose up -d --build`). Asset URLs are
-  versioned (`?v=N`) and the HTML is served `Cache-Control: no-store` so changes show
-  without a hard refresh.
-- **Data sources**: Open-Meteo (<https://open-meteo.com>) for weather + air quality;
+  `app/templates/*`, rebuild (`docker compose up -d --build`). Asset URLs are versioned
+  (`?v=N`) and the HTML is served `Cache-Control: no-store` so changes show without a
+  hard refresh.
+- **Data sources**: Open-Meteo (<https://open-meteo.com>) for weather and air quality;
   pollen.com (IQVIA) for US pollen. Open-Meteo's pollen feed is Europe-only, so US
-  pollen is sourced from pollen.com (which exposes an overall index plus active plant
+  pollen comes from pollen.com (which exposes an overall index plus active plant
   categories rather than per-species magnitudes).
+- **Backfilled good days** read historical weather and air quality from Open-Meteo
+  (recent days from the forecast API's past data, older days from the ERA5 archive).
+  Historical pollen has no source, so backfilled days show pollen as `N/A`.
+
+---
+
+## Changelog
+
+History before this entry is not captured here.
+
+### 2026-06-19
+
+- Added an **Entries** tab that lists your full log history, with a clearer pencil
+  edit button on each row.
+- Added **automatic good days**. In Auto mode, empty days from your first entry through
+  yesterday are filled with good-day records that pull historical weather and air
+  quality. The fill runs when you open the app, and logging a real entry replaces that
+  day's placeholder. Manual mode turns it off.
+- Reworked the dashboard heatmap to show the last 4 months so it fits on a phone
+  without sideways scrolling. Tapping it opens the full 365-day view with month labels
+  and good, pain, and tracked totals.
+- Added the `auto_generated` column on entries (applied on startup) and a
+  `POST /api/good_days/fill` endpoint.
