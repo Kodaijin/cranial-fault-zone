@@ -121,6 +121,7 @@ function cardTitle(t) {
 const routes = {
   dashboard: renderDashboard,
   log:       renderLog,
+  entries:   renderEntries,
   reports:   renderReports,
   manage:    renderManage,
 };
@@ -156,10 +157,9 @@ window.addEventListener('DOMContentLoaded', router);
 //  DASHBOARD
 // ═════════════════════════════════════════════════════════
 async function renderDashboard() {
-  const [game, grid, entries] = await Promise.all([
+  const [game, grid] = await Promise.all([
     api.get('/api/gamification'),
     api.get('/api/stats/grid'),
-    api.get('/api/entries'),
   ]);
 
   const pct = game.next_level_xp
@@ -342,25 +342,6 @@ async function renderDashboard() {
       <div class="achv-grid">${achvHtml}</div>
     </div>`));
 
-  // ── Recent entries ─────────────────────────────────────
-  const recentHtml = entries.length === 0
-    ? `<div class="empty-state">No entries yet. <a href="#/log">Log your first one →</a></div>`
-    : entries.slice(0, 8).map(entryRow).join('');
-
-  const recentCard = el(`
-    <div class="cfz-card">
-      ${cardTitle('Recent Entries')}
-      <div>${recentHtml}</div>
-    </div>`);
-  app.appendChild(recentCard);
-
-  app.querySelectorAll('[data-del-entry]').forEach((b) =>
-    b.addEventListener('click', async () => {
-      if (!confirm('Delete this entry?')) return;
-      await api.del(`/api/entries/${b.dataset.delEntry}`);
-      toast('Entry deleted');
-      router();
-    }));
 }
 
 // ── Seismograph canvas draw ──────────────────────────────
@@ -482,10 +463,10 @@ function entryRow(e) {
         </div>
         ${e.notes ? `<div class="entry-meta">${esc(e.notes)}</div>` : ''}
       </div>
-      <a href="#/log/${e.id}" class="del-btn" aria-label="Edit entry" title="Edit">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M7.5 2.5 L7.5 1 L8 0.5 L9.5 2 L9 2.5 Z" stroke="none" fill="currentColor"/>
-          <line x1="1" y1="9" x2="1" y2="9"/>
+      <a href="#/log/${e.id}" class="del-btn edit-btn" aria-label="Edit entry" title="Edit">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20h9"/>
+          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
         </svg>
       </a>
       <button class="del-btn" data-del-entry="${e.id}" aria-label="Delete entry" title="Delete">
@@ -515,10 +496,10 @@ function entryRow(e) {
         </div>
         ${hasWeather ? `<div class="entry-weather">${press} hPa · ${esc(e.weather_data.conditions || '')}</div>` : ''}
       </div>
-      <a href="#/log/${e.id}" class="del-btn" aria-label="Edit entry" title="Edit">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M7.5 2.5 L7.5 1 L8 0.5 L9.5 2 L9 2.5 Z" stroke="none" fill="currentColor"/>
-          <line x1="1" y1="9" x2="1" y2="9"/>
+      <a href="#/log/${e.id}" class="del-btn edit-btn" aria-label="Edit entry" title="Edit">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20h9"/>
+          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
         </svg>
       </a>
       <button class="del-btn" data-del-entry="${e.id}" aria-label="Delete entry" title="Delete">
@@ -527,6 +508,36 @@ function entryRow(e) {
         </svg>
       </button>
     </div>`;
+}
+
+// ═════════════════════════════════════════════════════════
+//  ENTRIES (log history)
+// ═════════════════════════════════════════════════════════
+async function renderEntries() {
+  const entries = await api.get('/api/entries');
+
+  app.innerHTML = pageHeader(
+    '<span class="fault-accent">Log</span> Entries',
+    'Every headache and good-day check-in you\'ve recorded.'
+  );
+
+  const listHtml = entries.length === 0
+    ? `<div class="empty-state">No entries yet. <a href="#/log">Log your first one →</a></div>`
+    : entries.map(entryRow).join('');
+
+  app.appendChild(el(`
+    <div class="cfz-card">
+      ${cardTitle(`All Entries (${entries.length})`)}
+      <div>${listHtml}</div>
+    </div>`));
+
+  app.querySelectorAll('[data-del-entry]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (!confirm('Delete this entry?')) return;
+      await api.del(`/api/entries/${b.dataset.delEntry}`);
+      toast('Entry deleted');
+      router();
+    }));
 }
 
 // ═════════════════════════════════════════════════════════

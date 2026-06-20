@@ -763,6 +763,18 @@ input, select, textarea, button {
   color: var(--fault2);
 }
 
+/* Edit button — amber accent, visible by default (not just on hover) */
+.edit-btn {
+  background: rgba(232,160,32,0.10);
+  border-color: rgba(232,160,32,0.35);
+  color: var(--amber2);
+}
+.edit-btn:hover {
+  background: rgba(232,160,32,0.20);
+  border-color: rgba(232,160,32,0.55);
+  color: var(--amber2);
+}
+
 /* ── Log form ────────────────────────────────────────── */
 .cfz-label {
   display: block;

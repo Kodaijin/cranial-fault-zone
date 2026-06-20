@@ -1,0 +1,55 @@
+[33mcommit 5f1fb11b169b53c56be714cf25d12d550873a745[m
+Author: Kodaijin <angelicodin@gmail.com>
+Date:   Mon Jun 15 02:37:26 2026 -0700
+
+    docs: add 'Updating a deployed instance' section to README
+    
+    Co-Authored-By: [1;31mClaude[m Opus 4.8 <noreply@anthropic.com>
+
+[33mcommit 86fbd42296c51e67289414905e005248d5db8172[m
+Author: Kodaijin <angelicodin@gmail.com>
+Date:   Mon Jun 15 02:32:20 2026 -0700
+
+    Make mobile nav row horizontally scrollable so no button is cut off
+    
+    Link row shrinks and scroll-snaps on narrow screens (labels kept, scrollbar
+    hidden); active tab auto-scrolls into view. Desktop unchanged.
+    
+    Co-Authored-By: [1;31mClaude[m Opus 4.8 <noreply@anthropic.com>
+
+[33mcommit a2cf64b4308e9b6be4b1517d7a2dbe4d39a08987[m
+Author: Kodaijin <angelicodin@gmail.com>
+Date:   Mon Jun 15 00:10:17 2026 -0700
+
+    Add good-day tracking: auto/manual mode + manual good-day logging
+    
+    - New settings table + /api/settings (good_day_mode: auto|manual)
+    - Log explicit good (no-pain) days via a special seeded type; excluded
+      from attack counts, trend charts, and PDF attack totals
+    - Activity grid returns per-day state (untracked|good|pain); manual mode
+      only greens explicitly-logged good days
+    - Frontend: Manage settings toggle, Log good-day mode, grid state colors,
+      good-day rows, edit support
+    
+    Co-Authored-By: [1;31mClaude[m Opus 4.8 <noreply@anthropic.com>
+
+[33mcommit 46f922f54f1e2ba6470c1d2f1f9ed80b19ec4568[m
+Author: Kodaijin <angelicodin@gmail.com>
+Date:   Sun Jun 14 22:12:22 2026 -0700
+
+    Add README with features, run, API, and deploy/migration docs
+    
+    Co-Authored-By: [1;31mClaude[m Opus 4.8 <noreply@anthropic.com>
+
+[33mcommit 52c3ea3d2c586d1ddc495bf69685ac49ad415417[m
+Author: Kodaijin <angelicodin@gmail.com>
+Date:   Sun Jun 14 22:10:50 2026 -0700
+
+    Initial commit: Cranial Fault Zone migraine tracker
+    
+    Dockerized FastAPI + SQLite app: entry logging with multi-zone pain mapping
+    and multiple medications, keyless weather/air-quality/pollen enrichment
+    (Open-Meteo + pollen.com), GitHub-style activity grid, gamification,
+    date-range reports, and clinical PDF export. Fixed GMT-8 day boundaries.
+    
+    Co-Authored-By: [1;31mClaude[m Opus 4.8 <noreply@anthropic.com>
