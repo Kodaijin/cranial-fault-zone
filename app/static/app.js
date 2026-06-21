@@ -961,7 +961,7 @@ async function renderReports() {
 
   app.innerHTML = pageHeader(
     '<span class="fault-accent">Environmental</span> Reports',
-    'Correlate barometric pressure, humidity, and allergens with onset.'
+    'Correlate barometric pressure, humidity, and allergens with onset. Diamonds mark pain days; small dots mark good days.'
   );
 
   // ── Date-range selector card ───────────────────────────
@@ -1131,6 +1131,11 @@ async function renderReports() {
   const gridColor = 'rgba(44,44,74,0.6)';
   const tickColor = '#7070a0';
 
+  // Distinguish pain onsets from good days on every chart: pain days are larger
+  // diamonds, good days are small dots. Shared across all datasets.
+  const ptStyle  = pts.map((p) => (p.is_good_day ? 'circle' : 'rectRot'));
+  const ptRadius = pts.map((p) => (p.is_good_day ? 2 : 4.5));
+
   const baseOpts = {
     responsive: true,
     maintainAspectRatio: false,
@@ -1176,7 +1181,8 @@ async function renderReports() {
           borderColor: '#e8334a',
           backgroundColor: 'rgba(232,51,74,0.12)',
           pointBackgroundColor: '#e8334a',
-          pointRadius: 3,
+          pointRadius: ptRadius,
+          pointStyle: ptStyle,
           pointHoverRadius: 5,
           borderWidth: 2,
           tension: 0.35,
@@ -1189,7 +1195,8 @@ async function renderReports() {
           borderColor: '#e8a020',
           backgroundColor: 'rgba(232,160,32,0.08)',
           pointBackgroundColor: '#e8a020',
-          pointRadius: 3,
+          pointRadius: ptRadius,
+          pointStyle: ptStyle,
           pointHoverRadius: 5,
           borderWidth: 2,
           tension: 0.35,
@@ -1212,7 +1219,8 @@ async function renderReports() {
           borderColor: '#d84040',
           backgroundColor: 'rgba(216,64,64,0.08)',
           pointBackgroundColor: '#d84040',
-          pointRadius: 3,
+          pointRadius: ptRadius,
+          pointStyle: ptStyle,
           pointHoverRadius: 5,
           borderWidth: 2,
           tension: 0.35,
@@ -1225,7 +1233,8 @@ async function renderReports() {
           borderColor: '#e8a020',
           backgroundColor: 'rgba(232,160,32,0.08)',
           pointBackgroundColor: '#e8a020',
-          pointRadius: 3,
+          pointRadius: ptRadius,
+          pointStyle: ptStyle,
           pointHoverRadius: 5,
           borderWidth: 2,
           tension: 0.35,
@@ -1238,7 +1247,8 @@ async function renderReports() {
           borderColor: '#ff9a56',
           backgroundColor: 'rgba(255,154,86,0.08)',
           pointBackgroundColor: '#ff9a56',
-          pointRadius: 3,
+          pointRadius: ptRadius,
+          pointStyle: ptStyle,
           pointHoverRadius: 5,
           borderWidth: 2,
           tension: 0.35,
@@ -1251,7 +1261,8 @@ async function renderReports() {
           borderColor: '#ff7043',
           backgroundColor: 'rgba(255,112,67,0.08)',
           pointBackgroundColor: '#ff7043',
-          pointRadius: 3,
+          pointRadius: ptRadius,
+          pointStyle: ptStyle,
           pointHoverRadius: 5,
           borderWidth: 2,
           tension: 0.35,
@@ -1274,7 +1285,8 @@ async function renderReports() {
           borderColor: '#a8d04b',
           backgroundColor: 'rgba(168,208,75,0.08)',
           pointBackgroundColor: '#a8d04b',
-          pointRadius: 3,
+          pointRadius: ptRadius,
+          pointStyle: ptStyle,
           pointHoverRadius: 5,
           borderWidth: 2,
           tension: 0.35,
@@ -1287,7 +1299,8 @@ async function renderReports() {
           borderColor: '#70d8da',
           backgroundColor: 'rgba(112,216,218,0.08)',
           pointBackgroundColor: '#70d8da',
-          pointRadius: 3,
+          pointRadius: ptRadius,
+          pointStyle: ptStyle,
           pointHoverRadius: 5,
           borderWidth: 2,
           tension: 0.35,
@@ -1300,7 +1313,8 @@ async function renderReports() {
           borderColor: '#b88ae8',
           backgroundColor: 'rgba(184,138,232,0.08)',
           pointBackgroundColor: '#b88ae8',
-          pointRadius: 3,
+          pointRadius: ptRadius,
+          pointStyle: ptStyle,
           pointHoverRadius: 5,
           borderWidth: 2,
           tension: 0.35,
@@ -1313,7 +1327,8 @@ async function renderReports() {
           borderColor: '#ffc56d',
           backgroundColor: 'rgba(255,197,109,0.08)',
           pointBackgroundColor: '#ffc56d',
-          pointRadius: 3,
+          pointRadius: ptRadius,
+          pointStyle: ptStyle,
           pointHoverRadius: 5,
           borderWidth: 2,
           tension: 0.35,
@@ -1336,7 +1351,8 @@ async function renderReports() {
           borderColor: '#30d88a',
           backgroundColor: 'rgba(48,216,138,0.08)',
           pointBackgroundColor: '#30d88a',
-          pointRadius: 3,
+          pointRadius: ptRadius,
+          pointStyle: ptStyle,
           pointHoverRadius: 5,
           borderWidth: 2,
           tension: 0.35,
@@ -1349,7 +1365,8 @@ async function renderReports() {
           borderColor: '#a8d04b',
           backgroundColor: 'rgba(168,208,75,0.08)',
           pointBackgroundColor: '#a8d04b',
-          pointRadius: 3,
+          pointRadius: ptRadius,
+          pointStyle: ptStyle,
           pointHoverRadius: 5,
           borderWidth: 2,
           tension: 0.35,
@@ -1362,7 +1379,8 @@ async function renderReports() {
           borderColor: '#e8334a',
           backgroundColor: 'rgba(232,51,74,0.08)',
           pointBackgroundColor: '#e8334a',
-          pointRadius: 3,
+          pointRadius: ptRadius,
+          pointStyle: ptStyle,
           pointHoverRadius: 5,
           borderWidth: 2,
           tension: 0.35,

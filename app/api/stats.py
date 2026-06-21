@@ -197,11 +197,11 @@ def trends(
     start_date = _parse_date(start)
     end_date = _parse_date(end)
 
+    # Good days are kept here (unlike the heatmap) so their environmental data
+    # populates the trend charts; each point carries an is_good_day flag so the
+    # UI can distinguish pain onsets from good days visually.
     filtered_entries = []
     for e in entries:
-        # Skip good-day entries — they are not pain onsets.
-        if e.headache_type is not None and e.headache_type.name == GOOD_DAY_TYPE_NAME:
-            continue
         if e.timestamp:
             entry_date = to_app_date(e.timestamp)
             if start_date and entry_date < start_date:
@@ -214,9 +214,14 @@ def trends(
     for e in filtered_entries:
         weather = _load(e.weather_data)
         env = _load(e.environmental_data)
+        is_good_day = (
+            e.headache_type is not None
+            and e.headache_type.name == GOOD_DAY_TYPE_NAME
+        )
         points.append(
             {
                 "date": e.timestamp.isoformat() if e.timestamp else None,
+                "is_good_day": is_good_day,
                 "pressure_hpa": _num(weather.get("pressure_hpa")),
                 "humidity_pct": _num(weather.get("humidity_pct")),
                 "temp_c": _num(weather.get("temp_c")),

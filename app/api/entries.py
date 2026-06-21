@@ -90,6 +90,23 @@ def _remove_auto_good_days_on_date(db: Session, timestamp: datetime | None) -> N
             db.delete(e)
 
 
+async def _fetch_conditions(location: Location | None) -> tuple[dict, dict]:
+    """Fetch (weather, environment) for an entry's location.
+
+    Routes through the service fetchers even when there is no location: both
+    return their canonical full-shape N/A payload for null coordinates, so the
+    stored JSON always carries every weather/pollutant key (no drift between a
+    hand-written fallback literal and the real payload shape)."""
+    lat = lon = city = state = None
+    if location is not None:
+        coords = await geocode(location.city_name, location.state_code)
+        lat, lon = coords if coords else (None, None)
+        city, state = location.city_name, location.state_code
+    weather = await fetch_weather(lat, lon)
+    environment = await fetch_environment(lat, lon, city, state)
+    return weather, environment
+
+
 def _get_good_day_type(db: Session) -> HeadacheType:
     """Return the Good Day HeadacheType or raise 500 if missing."""
     ht = db.scalar(select(HeadacheType).where(HeadacheType.name == GOOD_DAY_TYPE_NAME))
@@ -172,16 +189,7 @@ async def create_entry(payload: EntryCreate, db: Session = Depends(get_db)):
             if location is None:
                 raise HTTPException(400, "Invalid location_id")
 
-        weather = {"temp_c": "N/A", "pressure_hpa": "N/A", "humidity_pct": "N/A",
-                   "conditions": "N/A", "source": "N/A"}
-        environment = {"pm2_5": "N/A", "pm10": "N/A", "ozone": "N/A",
-                       "tree_pollen": "N/A", "grass_pollen": "N/A",
-                       "weed_pollen": "N/A", "source": "N/A"}
-        if location is not None:
-            coords = await geocode(location.city_name, location.state_code)
-            lat, lon = coords if coords else (None, None)
-            weather = await fetch_weather(lat, lon)
-            environment = await fetch_environment(lat, lon, location.city_name, location.state_code)
+        weather, environment = await _fetch_conditions(location)
 
         # Good days carry no episode fields (end time / ongoing / link).
         entry = Entry(
@@ -238,16 +246,7 @@ async def create_entry(payload: EntryCreate, db: Session = Depends(get_db)):
             raise HTTPException(400, f"Invalid pain_zone_ids: {sorted(missing)}")
 
     # Fetch external data (graceful fallback to N/A; never raises).
-    weather = {"temp_c": "N/A", "pressure_hpa": "N/A", "humidity_pct": "N/A",
-               "conditions": "N/A", "source": "N/A"}
-    environment = {"pm2_5": "N/A", "pm10": "N/A", "ozone": "N/A",
-                   "tree_pollen": "N/A", "grass_pollen": "N/A",
-                   "weed_pollen": "N/A", "source": "N/A"}
-    if location is not None:
-        coords = await geocode(location.city_name, location.state_code)
-        lat, lon = coords if coords else (None, None)
-        weather = await fetch_weather(lat, lon)
-        environment = await fetch_environment(lat, lon, location.city_name, location.state_code)
+    weather, environment = await _fetch_conditions(location)
 
     end_time, is_ongoing, link_id = _resolve_episode_fields(db, payload)
 

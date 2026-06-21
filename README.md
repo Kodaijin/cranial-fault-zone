@@ -49,7 +49,10 @@ comes from free, keyless sources.
   and good/pain/tracked totals.
 - **Reports**: a date-range selector (Week, Month, Year, or custom) drives four charts
   (pressure and humidity, major pollutants, trace pollutants, allergens) plus a
-  range-aware **clinical PDF export**.
+  range-aware **clinical PDF export**. The charts plot both pain days and good days so
+  the environmental record stays continuous — pain days show as diamonds, good days as
+  small dots. (Note: backfilled past days have no allergen reading, since there is no
+  historical pollen source.)
 - **Clinical PDF**: total attacks, most-frequent pain locations, medication efficacy,
   an environmental exposure summary (averages), and a chronological notes appendix. It
   is black-on-white and print-friendly.
@@ -248,6 +251,17 @@ reserve the bind-mount for dev/staging.
 ## Changelog
 
 History before this entry is not captured here.
+
+### 2026-06-21
+
+- Fixed the environmental report charts: good days were being dropped, so the four
+  charts (pressure/humidity, major and trace pollutants, allergens) showed almost
+  nothing once most of your days were auto-filled good days. They now include good
+  days, drawn as small dots to set them apart from pain days (diamonds).
+- Fixed entries saved without a location storing an outdated, short environmental
+  snapshot that was missing the carbon monoxide, nitrogen, and sulphur fields. Every
+  entry now stores the full set of keys (as `N/A` when there's no location) so nothing
+  silently disappears from the charts.
 
 ### 2026-06-19
 
