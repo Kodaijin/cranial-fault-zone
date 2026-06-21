@@ -55,6 +55,10 @@ comes from free, keyless sources.
   the environmental record stays continuous — pain days show as diamonds, good days as
   small dots. Backfilled days within the last ~30 carry allergens from pollen.com
   history; older ones don't, as no historical US pollen source exists.
+- **Backup & restore**: from the Manage page, export your entire history to a JSON file
+  and import it on another deployment. The backup carries everything — entries,
+  reference lists, settings, episode links, and environmental snapshots — and importing
+  replaces the target's data with an exact copy (ids preserved).
 - **Clinical PDF**: total attacks, most-frequent pain locations, medication efficacy,
   an environmental exposure summary (averages), and a chronological notes appendix. It
   is black-on-white and print-friendly.
@@ -127,6 +131,8 @@ requirements.txt
 | GET | `/api/stats/trends?start=&end=` | time series for charts (GMT-8 day filter) |
 | GET | `/api/gamification` | XP, level, streaks, stability, quests, achievements |
 | GET | `/api/export/pdf?start=&end=` | clinical PDF for the selected range |
+| GET | `/api/data/export` | download the full database as a JSON backup |
+| POST | `/api/data/import` | restore from a JSON backup (replaces all data) |
 
 Date-range params (`start`, `end`) are `YYYY-MM-DD`, both optional, inclusive, and
 evaluated against the entry's **GMT-8** calendar day.
@@ -151,6 +157,12 @@ docker compose up -d --build
 > intend to restore an existing data volume by name.
 
 ### 2. Move the data (optional, only to keep existing entries)
+
+The simplest way is from the app itself: on the old deployment open **Manage → Backup &
+Restore → Export data** to download a JSON file, then on the new deployment use **Import
+data** to load it (this replaces whatever is there). That moves your whole history without
+touching Docker volumes. The volume tarball method below is the alternative when you'd
+rather copy the database file directly.
 
 **On the old host**, export the volume to a tarball:
 
@@ -267,6 +279,10 @@ History before this entry is not captured here.
 - Auto good days now backfill **allergens** for recent days from pollen.com's ~30-day
   history (Open-Meteo has no US pollen). Days older than that still have no allergen
   reading, since no historical US pollen source exists.
+- Added **backup & restore** on the Manage page: export the whole database to a JSON
+  file and import it on another deployment. Import replaces all existing data and
+  preserves ids, so episode links and associations move intact. New endpoints
+  `GET /api/data/export` and `POST /api/data/import`.
 
 ### 2026-06-19
 

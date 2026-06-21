@@ -1443,6 +1443,47 @@ async function renderManage() {
     }
   });
 
+  // ── Backup & Restore ───────────────────────────────────
+  app.appendChild(el(`
+    <div class="cfz-card" style="margin-bottom:1rem">
+      ${cardTitle('Backup &amp; Restore')}
+      <p style="font-size:0.72rem;color:var(--muted);margin:0 0 0.75rem;line-height:1.5">
+        Download your full history as a JSON file, or restore one when moving to another
+        deployment. <strong style="color:var(--accent)">Importing replaces all current data.</strong>
+      </p>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+        <a href="/api/data/export" class="cfz-btn-amber" download>Export data</a>
+        <button type="button" id="import-btn" class="cfz-btn-add">Import data…</button>
+        <input type="file" id="import-file" accept="application/json,.json" style="display:none" />
+      </div>
+    </div>`));
+
+  const importBtn = app.querySelector('#import-btn');
+  const importFile = app.querySelector('#import-file');
+  importBtn.addEventListener('click', () => importFile.click());
+  importFile.addEventListener('change', async () => {
+    const file = importFile.files[0];
+    if (!file) return;
+    if (!confirm('Importing will REPLACE all current data with the contents of this file. This cannot be undone. Continue?')) {
+      importFile.value = '';
+      return;
+    }
+    try {
+      const text = await file.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch { throw new Error('not a valid JSON file'); }
+      const res = await api.post('/api/data/import', data);
+      const c = res.counts || {};
+      toast(`Imported ${c.entries ?? 0} entries`);
+      location.hash = '#/dashboard';
+    } catch (e) {
+      toast('Import failed: ' + e.message, 'err');
+    } finally {
+      importFile.value = '';
+    }
+  });
+
   // ── Headache Types ─────────────────────────────────────
   app.appendChild(el(`
     <div class="cfz-card" style="margin-bottom:1rem">

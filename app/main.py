@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import (
     crud,
+    data,
     entries,
     export,
     gamification,
@@ -50,6 +51,7 @@ app.include_router(settings.router)
 app.include_router(gamification.router)
 app.include_router(good_days.router)
 app.include_router(export.router)
+app.include_router(data.router)
 
 # Static SPA assets.
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
