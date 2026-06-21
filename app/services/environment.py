@@ -71,6 +71,44 @@ async def _fetch_us_pollen(zip_code: str) -> dict:
         return {"tree_pollen": NA, "grass_pollen": NA, "weed_pollen": NA}
 
 
+async def fetch_us_pollen_history(zip_code: str) -> dict[str, dict]:
+    """Daily pollen history from pollen.com (IQVIA) for a US ZIP code.
+
+    Returns a map of ISO date string ("YYYY-MM-DD") -> {tree_pollen,
+    grass_pollen, weed_pollen}, covering roughly the last 30 days. The historic
+    feed exposes only a single overall Index per day (no per-plant Triggers, as
+    the current feed has), so we mirror that one Index into all three
+    categories. This is the same kind of approximation _fetch_us_pollen makes,
+    extended to past days where the per-plant split is simply unavailable.
+
+    Used to backfill allergens for auto good days; Open-Meteo has no US pollen.
+    Returns {} on any failure so a backfill is never blocked.
+    """
+    url = f"https://www.pollen.com/api/forecast/historic/pollen/{zip_code}"
+    headers = {**_POLLEN_HEADERS, "Referer": url}
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+
+        out: dict[str, dict] = {}
+        for period in data["Location"]["periods"]:
+            day = (period.get("Period") or "")[:10]  # 'YYYY-MM-DD'
+            idx = period.get("Index")
+            if not day or idx is None:
+                continue
+            idx = float(idx)
+            out[day] = {
+                "tree_pollen": idx,
+                "grass_pollen": idx,
+                "weed_pollen": idx,
+            }
+        return out
+    except Exception:
+        return {}
+
+
 async def fetch_environment(
     lat: Optional[float],
     lon: Optional[float],

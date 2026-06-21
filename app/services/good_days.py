@@ -21,8 +21,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.models import Entry, HeadacheType, Setting
 from app.seed import GOOD_DAY_TYPE_NAME
-from app.services.environment import fetch_environment_historical
-from app.services.geocode import geocode
+from app.services.environment import fetch_environment_historical, fetch_us_pollen_history
+from app.services.geocode import geocode, resolve_zip
 from app.services.weather import fetch_weather_historical
 from app.tz import APP_TZ, app_today, to_app_date
 
@@ -76,25 +76,43 @@ async def fill_good_days(db: Session) -> int:
     if not missing:
         return 0
 
-    # Pre-resolve coordinates for every distinct location once.
+    # Pre-resolve coordinates and recent pollen history for every distinct
+    # location once. Open-Meteo has no US pollen, so allergens for recent
+    # backfilled days come from pollen.com's ~30-day history (keyed by ISO date).
     geo_cache: dict[tuple[str, str], tuple] = {}
+    pollen_cache: dict[tuple[str, str], dict] = {}
     for _, loc in located:
         key = (loc.city_name.lower(), loc.state_code.lower())
         if key not in geo_cache:
             geo_cache[key] = await geocode(loc.city_name, loc.state_code) or (None, None)
+        if key not in pollen_cache:
+            zip_code = await resolve_zip(loc.city_name, loc.state_code)
+            pollen_cache[key] = await fetch_us_pollen_history(zip_code) if zip_code else {}
 
     sem = asyncio.Semaphore(_MAX_CONCURRENCY)
 
     async def fetch_for(day):
         loc = nearest_location(day)
         if loc is not None:
-            lat, lon = geo_cache.get((loc.city_name.lower(), loc.state_code.lower()), (None, None))
+            key = (loc.city_name.lower(), loc.state_code.lower())
+            lat, lon = geo_cache.get(key, (None, None))
             city, state = loc.city_name, loc.state_code
         else:
+            key = None
             lat = lon = city = state = None
         async with sem:
             weather = await fetch_weather_historical(lat, lon, day)
             environment = await fetch_environment_historical(lat, lon, day, city, state)
+
+        # Overlay allergens from pollen.com history when this day is in range.
+        if key is not None:
+            day_pollen = pollen_cache.get(key, {}).get(day.isoformat())
+            if day_pollen:
+                environment.update(day_pollen)
+                src = environment.get("source")
+                environment["source"] = (
+                    f"{src}+pollen.com" if src and src != "N/A" else "pollen.com"
+                )
         return day, loc, weather, environment
 
     results = await asyncio.gather(*(fetch_for(day) for day in missing))

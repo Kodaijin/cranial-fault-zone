@@ -33,15 +33,17 @@ comes from free, keyless sources.
   - **Weather** (Open-Meteo): temperature, barometric pressure, humidity, conditions.
   - **Air quality** (Open-Meteo): PM2.5, PM10, ozone, carbon monoxide, nitrogen
     dioxide, nitrogen monoxide, nitrogen oxides (NOₓ = NO + NO₂), sulphur dioxide.
-  - **Pollen** (pollen.com / IQVIA, US): tree, grass, weed.
+  - **Pollen** (pollen.com / IQVIA, US): tree, grass, weed. Open-Meteo's pollen feed
+    is Europe-only, so US allergens come from pollen.com instead.
   - If a source is unavailable the value is stored as `N/A` and the save still goes
     through. Editing an entry keeps its original snapshot.
 - **Automatic good days**: in Auto mode, any day with no entry (from your first entry
   through yesterday) is filled with a good-day record, so it captures the same weather
-  and air-quality data as a logged day. Past days pull historical values from
-  Open-Meteo. The backfill runs when you open the app, and logging a real entry for a
-  day replaces its placeholder. Manual mode turns this off and counts only the good
-  days you log yourself.
+  and air-quality data as a logged day. Past days pull historical weather and air
+  quality from Open-Meteo; allergens for days within the last ~30 come from pollen.com's
+  history (older days have none, since no historical US pollen source exists). The
+  backfill runs when you open the app, and logging a real entry for a day replaces its
+  placeholder. Manual mode turns this off and counts only the good days you log yourself.
 - **Dashboard**: gamification (XP, levels, streaks, quests, achievements), the **Fault
   Zone Stability Index**, and an **activity grid** of the last 4 months with three
   states: untracked (before your first entry), good day (green, no pain), and pain days
@@ -51,8 +53,8 @@ comes from free, keyless sources.
   (pressure and humidity, major pollutants, trace pollutants, allergens) plus a
   range-aware **clinical PDF export**. The charts plot both pain days and good days so
   the environmental record stays continuous — pain days show as diamonds, good days as
-  small dots. (Note: backfilled past days have no allergen reading, since there is no
-  historical pollen source.)
+  small dots. Backfilled days within the last ~30 carry allergens from pollen.com
+  history; older ones don't, as no historical US pollen source exists.
 - **Clinical PDF**: total attacks, most-frequent pain locations, medication efficacy,
   an environmental exposure summary (averages), and a chronological notes appendix. It
   is black-on-white and print-friendly.
@@ -262,6 +264,9 @@ History before this entry is not captured here.
   snapshot that was missing the carbon monoxide, nitrogen, and sulphur fields. Every
   entry now stores the full set of keys (as `N/A` when there's no location) so nothing
   silently disappears from the charts.
+- Auto good days now backfill **allergens** for recent days from pollen.com's ~30-day
+  history (Open-Meteo has no US pollen). Days older than that still have no allergen
+  reading, since no historical US pollen source exists.
 
 ### 2026-06-19
 
