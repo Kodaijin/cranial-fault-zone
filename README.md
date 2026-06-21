@@ -277,7 +277,9 @@ History before this entry is not captured here.
   entry now stores the full set of keys (as `N/A` when there's no location) so nothing
   silently disappears from the charts.
 - Auto good days now backfill **allergens** for recent days from pollen.com's ~30-day
-  history (Open-Meteo has no US pollen). Days older than that still have no allergen
+  history (Open-Meteo has no US pollen). The backfill is self-healing: existing auto
+  good days inside that window that are still missing allergens get patched on the next
+  app open, not just newly created ones. Days older than ~30 still have no allergen
   reading, since no historical US pollen source exists.
 - Added **backup & restore** on the Manage page: export the whole database to a JSON
   file and import it on another deployment. Import replaces all existing data and

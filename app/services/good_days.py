@@ -30,12 +30,57 @@ from app.tz import APP_TZ, app_today, to_app_date
 # not open hundreds of simultaneous HTTP connections.
 _MAX_CONCURRENCY = 8
 
+# How far back pollen.com's daily history reaches (~30 days). Existing auto good
+# days inside this window are patched with allergens on each run; older ones have
+# no US pollen source and stay N/A.
+_POLLEN_HISTORY_DAYS = 31
+
+
+def _loc_key(loc) -> tuple[str, str]:
+    return (loc.city_name.lower(), loc.state_code.lower())
+
+
+def _safe_json(value) -> dict:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {}
+    except (ValueError, TypeError):
+        return {}
+
+
+def _apply_pollen(environment: dict, day_pollen: dict | None) -> bool:
+    """Merge pollen.com allergens into an environment payload in place.
+
+    Returns True if anything changed. Tags the source with '+pollen.com' once.
+    """
+    if not day_pollen:
+        return False
+    environment.update(day_pollen)
+    src = environment.get("source") or ""
+    if "pollen.com" not in src:
+        environment["source"] = f"{src}+pollen.com" if src and src != "N/A" else "pollen.com"
+    return True
+
+
+async def _ensure_pollen(loc, cache: dict) -> dict:
+    """Return (and cache) pollen.com's recent history for a location, keyed by
+    ISO date. Empty dict if no ZIP resolves or the fetch fails."""
+    key = _loc_key(loc)
+    if key not in cache:
+        zip_code = await resolve_zip(loc.city_name, loc.state_code)
+        cache[key] = await fetch_us_pollen_history(zip_code) if zip_code else {}
+    return cache[key]
+
 
 async def fill_good_days(db: Session) -> int:
-    """Create auto good-day entries for empty days (first entry → yesterday).
+    """Create auto good-day entries for empty days (first entry → yesterday) and
+    backfill allergens onto existing auto good days that still lack them.
 
-    Returns the number of entries created. Safe to call repeatedly (idempotent):
-    days that already have any entry are skipped.
+    Returns the number of entries created or updated. Safe to call repeatedly:
+    days that already have any entry are not recreated, and an auto good day is
+    only patched while its allergens are still missing and within pollen range.
     """
     mode_row = db.scalar(select(Setting).where(Setting.key == "good_day_mode"))
     mode = mode_row.value if mode_row is not None else "auto"
@@ -73,28 +118,40 @@ async def fill_good_days(db: Session) -> int:
         if cursor not in existing_dates:
             missing.append(cursor)
         cursor += timedelta(days=1)
-    if not missing:
+
+    # Existing auto good days within the pollen window that still lack allergens.
+    # These were created before allergen backfill existed (or before their day
+    # was in range); patch them so the charts fill in retroactively.
+    pollen_floor = app_today() - timedelta(days=_POLLEN_HISTORY_DAYS)
+    patch_targets = [
+        (d, e)
+        for d, e in dated
+        if e.auto_generated
+        and e.location is not None
+        and d >= pollen_floor
+        and _safe_json(e.environmental_data).get("tree_pollen", "N/A") == "N/A"
+    ]
+
+    if not missing and not patch_targets:
         return 0
 
     # Pre-resolve coordinates and recent pollen history for every distinct
-    # location once. Open-Meteo has no US pollen, so allergens for recent
-    # backfilled days come from pollen.com's ~30-day history (keyed by ISO date).
+    # location once. Open-Meteo has no US pollen, so allergens come from
+    # pollen.com's ~30-day history (keyed by ISO date).
     geo_cache: dict[tuple[str, str], tuple] = {}
     pollen_cache: dict[tuple[str, str], dict] = {}
     for _, loc in located:
-        key = (loc.city_name.lower(), loc.state_code.lower())
+        key = _loc_key(loc)
         if key not in geo_cache:
             geo_cache[key] = await geocode(loc.city_name, loc.state_code) or (None, None)
-        if key not in pollen_cache:
-            zip_code = await resolve_zip(loc.city_name, loc.state_code)
-            pollen_cache[key] = await fetch_us_pollen_history(zip_code) if zip_code else {}
+        await _ensure_pollen(loc, pollen_cache)
 
     sem = asyncio.Semaphore(_MAX_CONCURRENCY)
 
     async def fetch_for(day):
         loc = nearest_location(day)
         if loc is not None:
-            key = (loc.city_name.lower(), loc.state_code.lower())
+            key = _loc_key(loc)
             lat, lon = geo_cache.get(key, (None, None))
             city, state = loc.city_name, loc.state_code
         else:
@@ -106,33 +163,38 @@ async def fill_good_days(db: Session) -> int:
 
         # Overlay allergens from pollen.com history when this day is in range.
         if key is not None:
-            day_pollen = pollen_cache.get(key, {}).get(day.isoformat())
-            if day_pollen:
-                environment.update(day_pollen)
-                src = environment.get("source")
-                environment["source"] = (
-                    f"{src}+pollen.com" if src and src != "N/A" else "pollen.com"
-                )
+            _apply_pollen(environment, pollen_cache.get(key, {}).get(day.isoformat()))
         return day, loc, weather, environment
 
-    results = await asyncio.gather(*(fetch_for(day) for day in missing))
+    created = 0
+    if missing:
+        results = await asyncio.gather(*(fetch_for(day) for day in missing))
+        for day, loc, weather, environment in results:
+            # Anchor the timestamp at local noon so day bucketing is unambiguous.
+            ts = (
+                datetime.combine(day, time(12, 0))
+                .replace(tzinfo=APP_TZ)
+                .astimezone(timezone.utc)
+            )
+            entry = Entry(
+                headache_type_id=good_type.id,
+                location_id=loc.id if loc is not None else None,
+                weather_data=json.dumps(weather),
+                environmental_data=json.dumps(environment),
+                auto_generated=True,
+            )
+            entry.timestamp = ts
+            db.add(entry)
+        created = len(results)
 
-    for day, loc, weather, environment in results:
-        # Anchor the timestamp at local noon so day bucketing is unambiguous.
-        ts = (
-            datetime.combine(day, time(12, 0))
-            .replace(tzinfo=APP_TZ)
-            .astimezone(timezone.utc)
-        )
-        entry = Entry(
-            headache_type_id=good_type.id,
-            location_id=loc.id if loc is not None else None,
-            weather_data=json.dumps(weather),
-            environmental_data=json.dumps(environment),
-            auto_generated=True,
-        )
-        entry.timestamp = ts
-        db.add(entry)
+    # Patch allergens onto existing auto good days now that history is available.
+    patched = 0
+    for day, entry in patch_targets:
+        history = await _ensure_pollen(entry.location, pollen_cache)
+        environment = _safe_json(entry.environmental_data)
+        if _apply_pollen(environment, history.get(day.isoformat())):
+            entry.environmental_data = json.dumps(environment)
+            patched += 1
 
     db.commit()
-    return len(results)
+    return created + patched
